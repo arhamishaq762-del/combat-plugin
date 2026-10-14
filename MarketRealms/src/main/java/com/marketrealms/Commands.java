@@ -461,7 +461,7 @@ final class Commands implements CommandExecutor, TabCompleter {
               throw new IllegalArgumentException(
                   "recovery resolve <id> acknowledge-commit|acknowledge-rollback AFTER manual"
                       + " reconciliation");
-            plugin.journal.resolve(id, args[3], player(sender));
+            plugin.journal.resolve(id, args[3], sender);
             sender.sendMessage(
                 "Review lock cleared. This command does NOT replay stock, payments or"
                     + " inventories.");

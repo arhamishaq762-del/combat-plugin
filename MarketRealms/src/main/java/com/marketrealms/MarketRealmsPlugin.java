@@ -63,6 +63,7 @@ public final class MarketRealmsPlugin extends JavaPlugin implements Listener {
                 try {
                   if (clock % config.file("config").getLong("rentals.expiration-check-ticks") == 0)
                     rentals.tick();
+                  if (clock % 72000 == 0) archives.retention();
                 } catch (RuntimeException e) {
                   storageFailure(e);
                 }

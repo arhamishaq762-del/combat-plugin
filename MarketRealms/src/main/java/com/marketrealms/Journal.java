@@ -41,6 +41,25 @@ final class Journal {
     plugin.db.update("UPDATE trades SET state='CANCELLED' WHERE state='OPEN'");
     plugin.db.update("UPDATE trades SET state='REVIEW' WHERE state='FINALIZING'");
     reloadLocks();
+    for (var operation : plugin.db.rows("SELECT payload FROM operations WHERE state='REVIEW'")) {
+      try {
+        YamlConfiguration data = new YamlConfiguration();
+        data.loadFromString(text(operation, "payload"));
+        String plot = data.getString("details.plot", "");
+        if (plot.isEmpty()) {
+          String listing = data.getString("details.listing", "");
+          var row = plugin.db.one("SELECT plot FROM listings WHERE id=?", listing);
+          if (row != null) plot = text(row, "plot");
+        }
+        if (!plot.isEmpty())
+          plugin.db.update(
+              "UPDATE plots SET state='OPERATION_REVIEW' WHERE id=? AND state IN"
+                  + " ('AVAILABLE','RENTED','SHOP_REVIEW','DESIGN_REVIEW')",
+              plot);
+      } catch (Exception e) {
+        throw new IllegalStateException("Cannot read recovery intent", e);
+      }
+    }
   }
 
   void reloadLocks() {
@@ -231,7 +250,7 @@ final class Journal {
         owner.toString());
   }
 
-  void resolve(String id, String mode, Player admin) {
+  void resolve(String id, String mode, org.bukkit.command.CommandSender admin) {
     var operation = plugin.db.one("SELECT * FROM operations WHERE id=? AND state='REVIEW'", id);
     if (operation == null) throw new IllegalArgumentException("No review operation with that ID");
     // Never guess external effects. Admin must reconcile provider ledger and physically saved
@@ -242,7 +261,7 @@ final class Journal {
     plugin.db.update(
         "UPDATE operations SET state=?,error=? WHERE id=? AND state='REVIEW'",
         mode.equals("acknowledge-commit") ? "MANUAL_COMMIT" : "MANUAL_ROLLBACK",
-        "Reconciled by " + admin.getUniqueId(),
+        "Reconciled by " + admin.getName(),
         id);
     reloadLocks();
   }
