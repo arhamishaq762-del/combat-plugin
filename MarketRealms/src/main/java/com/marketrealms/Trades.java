@@ -10,6 +10,7 @@ import org.bukkit.event.player.*;
 import org.bukkit.inventory.*;
 import org.bukkit.configuration.file.YamlConfiguration;
 import java.util.*;
+import com.marketrealms.Domain.Currency;
 import static com.marketrealms.Domain.*;
 
 final class Trades implements Listener {

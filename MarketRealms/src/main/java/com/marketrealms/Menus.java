@@ -8,6 +8,7 @@ import org.bukkit.event.inventory.*;
 import org.bukkit.inventory.*;
 import java.util.*;
 import java.util.function.Consumer;
+import com.marketrealms.Domain.Currency;
 import static com.marketrealms.Domain.*;
 import static com.marketrealms.Store.*;
 

@@ -22,6 +22,7 @@ final class Journal {
         plugin.db.update("UPDATE operations SET state='ROLLED_BACK', error='No effects started' WHERE state='PREPARED'");
         plugin.db.update("UPDATE operations SET state='REVIEW', error='Interrupted external/inventory operation; inspect before/after images' WHERE state='APPLYING'");
         plugin.db.update("UPDATE trades SET state='CANCELLED' WHERE state='OPEN'");
+        plugin.db.update("UPDATE trades SET state='REVIEW' WHERE state='FINALIZING'");
         reloadLocks();
     }
     void reloadLocks(){blocked.clear();for(var row:plugin.db.rows("SELECT player FROM participants JOIN operations ON operation=operations.id WHERE state='REVIEW'"))blocked.add(UUID.fromString(text(row,"player")));}
@@ -45,6 +46,7 @@ final class Journal {
             return id;
         }catch(RuntimeException e){
             if(committed)throw e;
+            if(e instanceof Store.StorageFailure){uncertain=true;plugin.storageFailure(e);}
             boolean restored=!uncertain;
             if(!uncertain){
                 try{for(Change change:changes){change.player().getInventory().setStorageContents(Items.copy(change.before()));change.player().saveData();}}catch(RuntimeException rollback){restored=false;plugin.getLogger().severe("Inventory rollback needs review for "+id+": "+rollback.getMessage());}

@@ -2,6 +2,7 @@ package com.marketrealms;
 
 import org.bukkit.entity.Player;
 import java.util.*;
+import com.marketrealms.Domain.Currency;
 import static com.marketrealms.Domain.*;
 import static com.marketrealms.Store.*;
 
