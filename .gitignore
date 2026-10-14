@@ -1,0 +1,5 @@
+.tools/
+.m2/
+target/
+.server*/
+*.log
