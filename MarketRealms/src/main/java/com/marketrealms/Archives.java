@@ -1,59 +1,431 @@
 package com.marketrealms;
 
+import static com.marketrealms.Domain.*;
+import static com.marketrealms.Store.*;
+
+import java.nio.file.*;
+import java.util.*;
+import java.util.concurrent.*;
 import org.bukkit.*;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
-import java.nio.file.*;
-import java.util.*;
-import java.util.concurrent.*;
-import static com.marketrealms.Domain.*;
-import static com.marketrealms.Store.*;
 
 final class Archives implements AutoCloseable {
-    private final MarketRealmsPlugin plugin;
-    private final Set<String> running=new HashSet<>();
-    private final ExecutorService io=Executors.newSingleThreadExecutor(Thread.ofPlatform().name("MarketRealms-archive-io").factory());
-    Archives(MarketRealmsPlugin plugin){this.plugin=plugin;}
-    boolean locked(String plot){return running.contains(plot)||plugin.db.one("SELECT id FROM plots WHERE id=? AND state NOT IN ('AVAILABLE','RENTED')",plot)!=null;}
-    Path path(String id){UUID.fromString(id);return plugin.getDataFolder().toPath().resolve("archives").resolve(id+".mrzip");}
-    long limit(){return plugin.config.file("recovery").getLong("maximum-expanded-bytes");}
-    void resume(){
-        for(var r:plugin.db.rows("SELECT * FROM rentals WHERE state IN ('ARCHIVING','RESETTING')"))expire(r);
-        for(var a:plugin.db.rows("SELECT * FROM archives WHERE state='RESTORING'")){var r=plugin.db.one("SELECT * FROM rentals WHERE id=? AND state='ACTIVE'",text(a,"destination"));if(r!=null)restoreInternal(a,r);else fail(a,"Restore destination is no longer active; needs administrator review");}
+  private final MarketRealmsPlugin plugin;
+  private final Set<String> running = new HashSet<>();
+  private final ExecutorService io =
+      Executors.newSingleThreadExecutor(
+          Thread.ofPlatform().name("MarketRealms-archive-io").factory());
+
+  Archives(MarketRealmsPlugin plugin) {
+    this.plugin = plugin;
+  }
+
+  boolean locked(String plot) {
+    return running.contains(plot)
+        || plugin.db.one(
+                "SELECT id FROM plots WHERE id=? AND state NOT IN ('AVAILABLE','RENTED')", plot)
+            != null;
+  }
+
+  Path path(String id) {
+    UUID.fromString(id);
+    return plugin.getDataFolder().toPath().resolve("archives").resolve(id + ".mrzip");
+  }
+
+  long limit() {
+    return plugin.config.file("recovery").getLong("maximum-expanded-bytes");
+  }
+
+  void resume() {
+    for (var r : plugin.db.rows("SELECT * FROM rentals WHERE state IN ('ARCHIVING','RESETTING')"))
+      expire(r);
+    for (var a : plugin.db.rows("SELECT * FROM archives WHERE state='RESTORING'")) {
+      var r =
+          plugin.db.one(
+              "SELECT * FROM rentals WHERE id=? AND state='ACTIVE'", text(a, "destination"));
+      if (r != null) restoreInternal(a, r);
+      else fail(a, "Restore destination is no longer active; needs administrator review");
     }
-    void expire(Map<String,Object> rental){String plot=text(rental,"plot");if(running.contains(plot))return;
-        var a=plugin.db.one("SELECT * FROM archives WHERE rental=? AND state IN ('CAPTURING','RESETTING','FAILED') ORDER BY created DESC LIMIT 1",text(rental,"id"));
-        if(a==null){String id=UUID.randomUUID().toString();plugin.db.update("INSERT INTO archives(id,owner,rental,plot,path,state,created) VALUES(?,?,?,?,?,'CAPTURING',?)",id,text(rental,"owner"),text(rental,"id"),plot,path(id).toString(),System.currentTimeMillis());a=plugin.db.one("SELECT * FROM archives WHERE id=?",id);}
-        Map<String,Object> archive=a;running.add(plot);
-        if(text(archive,"state").equals("RESETTING")){load(archive,manifest->reset(archive,rental,manifest));return;}
-        plugin.db.update("UPDATE archives SET state='CAPTURING',error=NULL WHERE id=?",text(archive,"id"));capture(archive,rental);
+  }
+
+  void expire(Map<String, Object> rental) {
+    String plot = text(rental, "plot");
+    if (running.contains(plot)) return;
+    var a =
+        plugin.db.one(
+            "SELECT * FROM archives WHERE rental=? AND state IN ('CAPTURING','RESETTING','FAILED')"
+                + " ORDER BY created DESC LIMIT 1",
+            text(rental, "id"));
+    if (a == null) {
+      String id = UUID.randomUUID().toString();
+      plugin.db.update(
+          "INSERT INTO archives(id,owner,rental,plot,path,state,created)"
+              + " VALUES(?,?,?,?,?,'CAPTURING',?)",
+          id,
+          text(rental, "owner"),
+          text(rental, "id"),
+          plot,
+          path(id).toString(),
+          System.currentTimeMillis());
+      a = plugin.db.one("SELECT * FROM archives WHERE id=?", id);
     }
-    private void capture(Map<String,Object> archive,Map<String,Object> rental){
-        Plot plot=plugin.config.plots.get(text(rental,"plot"));if(plot==null){fail(archive,"Missing plot definition");return;}
-        Box b=plot.box();YamlConfiguration manifest=new YamlConfiguration();manifest.set("version",1);manifest.set("minecraft",Bukkit.getMinecraftVersion());manifest.set("owner",text(rental,"owner"));manifest.set("plot",plot.id());manifest.set("dimensions",List.of(b.width(),b.height(),b.depth()));manifest.set("origin",List.of(b.x1(),b.y1(),b.z1()));manifest.set("created",System.currentTimeMillis());manifest.set("category",text(rental,"category"));
-        manifest.set("listings",plugin.db.rows("SELECT * FROM listings WHERE rental=?",text(rental,"id")));manifest.set("bell",plugin.db.one("SELECT * FROM bells WHERE plot=?",plot.id()));
-        List<Map<String,Object>> blocks=new ArrayList<>();
-        new BukkitRunnable(){int index=0;public void run(){try{int count=plugin.config.file("recovery").getInt("blocks-per-tick");for(int i=0;i<count&&index<b.volume();i++,index++){int x=index%b.width(),z=(index/b.width())%b.depth(),y=index/(b.width()*b.depth());var block=plugin.worlds.market.getBlockAt(b.x1()+x,b.y1()+y,b.z1()+z);if(!block.getType().isAir())blocks.add(Blocks.capture(block,x,y,z));}if(index>=b.volume()){cancel();manifest.set("blocks",blocks);String serialized=manifest.saveToString();String id=text(archive,"id");long max=limit();io.submit(()->{try{String checksum=ArchiveIO.write(path(id),serialized,max);Bukkit.getScheduler().runTask(plugin,()->{try{plugin.db.update("UPDATE archives SET checksum=?,state='RESETTING' WHERE id=?",checksum,id);plugin.db.update("UPDATE rentals SET state='RESETTING' WHERE id=?",text(rental,"id"));plugin.db.update("UPDATE plots SET state='RESETTING' WHERE id=?",plot.id());reset(plugin.db.one("SELECT * FROM archives WHERE id=?",id),rental,manifest);}catch(RuntimeException e){fail(archive,e.getMessage());}});}catch(Exception e){Bukkit.getScheduler().runTask(plugin,()->fail(archive,e.getMessage()));}});}}catch(RuntimeException e){cancel();fail(archive,e.getMessage());}}}.runTaskTimer(plugin,1,1);
+    Map<String, Object> archive = a;
+    running.add(plot);
+    if (text(archive, "state").equals("RESETTING")) {
+      load(archive, manifest -> reset(archive, rental, manifest));
+      return;
     }
-    private void reset(Map<String,Object> archive,Map<String,Object> rental,YamlConfiguration manifest){Plot plot=plugin.config.plots.get(text(rental,"plot"));Box b=plot.box();plugin.shops.removeEntitiesForPlot(plot.id());
-        batch(b,index->{int x=index%b.width(),z=index/b.width()%b.depth(),y=index/(b.width()*b.depth());Blocks.clear(plugin.worlds.market.getBlockAt(b.x1()+x,b.y1()+y,b.z1()+z));},()->{
-            plugin.worlds.market.save(); // Flush before declaring the plot available.
-            plugin.db.transaction(()->{plugin.db.update("DELETE FROM listings WHERE rental=?",text(rental,"id"));plugin.db.update("DELETE FROM bells WHERE plot=?",plot.id());plugin.db.update("UPDATE rentals SET state='EXPIRED' WHERE id=?",text(rental,"id"));plugin.db.update("UPDATE plots SET state='AVAILABLE' WHERE id=?",plot.id());plugin.db.update("UPDATE archives SET state='AVAILABLE',error=NULL WHERE id=?",text(archive,"id"));return null;});running.remove(plot.id());plugin.rentals.refresh();Player p=Bukkit.getPlayer(UUID.fromString(text(rental,"owner")));if(p!=null)plugin.info(p,"Your build was safely archived: "+text(archive,"id")+". Rent another plot, then /market restore.");
-        },e->fail(archive,e.getMessage()));
+    plugin.db.update(
+        "UPDATE archives SET state='CAPTURING',error=NULL WHERE id=?", text(archive, "id"));
+    capture(archive, rental);
+  }
+
+  private void capture(Map<String, Object> archive, Map<String, Object> rental) {
+    Plot plot = plugin.config.plots.get(text(rental, "plot"));
+    if (plot == null) {
+      fail(archive, "Missing plot definition");
+      return;
     }
-    void restore(Player player,String archiveId){var rental=plugin.rentals.requireOwner(player);var archive=plugin.db.one("SELECT * FROM archives WHERE id=? AND owner=? AND state='AVAILABLE'",archiveId,player.getUniqueId().toString());if(archive==null)throw new IllegalArgumentException("Archive is unavailable or belongs to someone else");Plot plot=plugin.config.plots.get(text(rental,"plot"));plugin.rentals.ensureEmpty(plot);plugin.db.transaction(()->{if(plugin.db.update("UPDATE archives SET state='RESTORING',destination=? WHERE id=? AND state='AVAILABLE'",text(rental,"id"),archiveId)!=1)throw new IllegalArgumentException("Archive already claimed");plugin.db.update("UPDATE plots SET state='RESTORING' WHERE id=? AND state='RENTED'",plot.id());return null;});restoreInternal(plugin.db.one("SELECT * FROM archives WHERE id=?",archiveId),rental);plugin.info(player,"Restoration started; your plot is locked until all blocks and contents are saved.");}
-    private void restoreInternal(Map<String,Object> archive,Map<String,Object> rental){String plotId=text(rental,"plot");if(!running.add(plotId))return;load(archive,manifest->{try{List<Integer>d=manifest.getIntegerList("dimensions");Plot plot=plugin.config.plots.get(plotId);if(d.size()!=3||!plot.box().fits(d.get(0),d.get(1),d.get(2)))throw new IllegalArgumentException("Destination is too small");if(manifest.getInt("version")!=1||!manifest.getString("owner").equals(text(rental,"owner")))throw new IllegalArgumentException("Archive ownership/version mismatch");List<Map<?,?>> blocks=Blocks.blockList(manifest);Box b=plot.box();for(var block:blocks){int x=Blocks.integer(block,"x"),y=Blocks.integer(block,"y"),z=Blocks.integer(block,"z");if(x<0||x>=d.get(0)||y<0||y>=d.get(1)||z<0||z>=d.get(2))throw new IllegalArgumentException("Invalid archived block position");Bukkit.createBlockData(Objects.toString(block.get("block")));if(block.containsKey("inventory"))Items.decode(Objects.toString(block.get("inventory")));}
-            batchList(blocks,block->Blocks.data(plugin.worlds.market.getBlockAt(b.x1()+Blocks.integer(block,"x"),b.y1()+Blocks.integer(block,"y"),b.z1()+Blocks.integer(block,"z")),block),()->batchList(blocks,block->Blocks.state(plugin.worlds.market.getBlockAt(b.x1()+Blocks.integer(block,"x"),b.y1()+Blocks.integer(block,"y"),b.z1()+Blocks.integer(block,"z")),block),()->{
-                plugin.worlds.market.save();plugin.db.transaction(()->{plugin.shops.restoreListings(manifest,rental,text(archive,"id"));plugin.bells.restore(manifest,rental);plugin.db.update("UPDATE archives SET state='USED',error=NULL WHERE id=? AND state='RESTORING'",text(archive,"id"));plugin.db.update("UPDATE plots SET state='RENTED' WHERE id=?",plotId);return null;});running.remove(plotId);plugin.shops.repair();Player owner=Bukkit.getPlayer(UUID.fromString(text(rental,"owner")));if(owner!=null)plugin.success(owner,"Build restored. This archive is consumed and cannot be restored again.");
-            },e->fail(archive,e.getMessage())),e->fail(archive,e.getMessage()));
-        }catch(RuntimeException e){plugin.db.update("UPDATE archives SET state='AVAILABLE',destination=NULL,error=? WHERE id=?",e.getMessage(),text(archive,"id"));plugin.db.update("UPDATE plots SET state='RENTED' WHERE id=?",plotId);running.remove(plotId);plugin.getLogger().warning("Restore validation failed: "+e.getMessage());}});}
-    private void load(Map<String,Object> archive,java.util.function.Consumer<YamlConfiguration> result){long max=limit();io.submit(()->{try{String value=ArchiveIO.read(path(text(archive,"id")),max,text(archive,"checksum"));Bukkit.getScheduler().runTask(plugin,()->{try{YamlConfiguration y=new YamlConfiguration();y.loadFromString(value);result.accept(y);}catch(Exception e){fail(archive,e.getMessage());}});}catch(Exception e){Bukkit.getScheduler().runTask(plugin,()->fail(archive,e.getMessage()));}});}
-    private void fail(Map<String,Object> archive,String reason){running.remove(text(archive,"plot"));plugin.db.update("UPDATE archives SET error=? WHERE id=?",reason,text(archive,"id"));plugin.getLogger().severe("Archive "+text(archive,"id")+" remains locked/recoverable: "+reason);}
-    void batch(Box box,java.util.function.IntConsumer block,Runnable done,java.util.function.Consumer<RuntimeException> fail){new BukkitRunnable(){int index=0;public void run(){try{int n=plugin.config.file("recovery").getInt("blocks-per-tick");for(int i=0;i<n&&index<box.volume();i++,index++)block.accept(index);if(index>=box.volume()){cancel();done.run();}}catch(RuntimeException e){cancel();fail.accept(e);}}}.runTaskTimer(plugin,1,1);}
-    private void batchList(List<Map<?,?>> blocks,java.util.function.Consumer<Map<?,?>> block,Runnable done,java.util.function.Consumer<RuntimeException> fail){new BukkitRunnable(){int index=0;public void run(){try{int n=plugin.config.file("recovery").getInt("blocks-per-tick");for(int i=0;i<n&&index<blocks.size();i++,index++)block.accept(blocks.get(index));if(index>=blocks.size()){cancel();done.run();}}catch(RuntimeException e){cancel();fail.accept(e);}}}.runTaskTimer(plugin,1,1);}
-    void retry(String id){var a=plugin.db.one("SELECT * FROM archives WHERE id=?",id);if(a==null)throw new IllegalArgumentException("Unknown archive");if(text(a,"state").equals("RESTORING")){var r=plugin.db.one("SELECT * FROM rentals WHERE id=?",text(a,"destination"));restoreInternal(a,r);}else{var r=plugin.db.one("SELECT * FROM rentals WHERE id=?",text(a,"rental"));expire(r);}}
-    void export(String id)throws Exception{var a=plugin.db.one("SELECT * FROM archives WHERE id=?",id);if(a==null)throw new IllegalArgumentException("Unknown archive");ArchiveIO.read(path(id),limit(),text(a,"checksum"));Path exports=plugin.getDataFolder().toPath().resolve("exports");Files.createDirectories(exports);Files.copy(path(id),exports.resolve(id+".mrzip"),StandardCopyOption.REPLACE_EXISTING);}
-    boolean busy(){return !running.isEmpty();}
-    @Override public void close(){io.shutdown();try{if(!io.awaitTermination(10,TimeUnit.SECONDS))io.shutdownNow();}catch(InterruptedException e){Thread.currentThread().interrupt();}}
+    Box b = plot.box();
+    YamlConfiguration manifest = new YamlConfiguration();
+    manifest.set("version", 1);
+    manifest.set("minecraft", Bukkit.getMinecraftVersion());
+    manifest.set("owner", text(rental, "owner"));
+    manifest.set("plot", plot.id());
+    manifest.set("dimensions", List.of(b.width(), b.height(), b.depth()));
+    manifest.set("origin", List.of(b.x1(), b.y1(), b.z1()));
+    manifest.set("created", System.currentTimeMillis());
+    manifest.set("category", text(rental, "category"));
+    manifest.set(
+        "listings", plugin.db.rows("SELECT * FROM listings WHERE rental=?", text(rental, "id")));
+    manifest.set("bell", plugin.db.one("SELECT * FROM bells WHERE plot=?", plot.id()));
+    List<Map<String, Object>> blocks = new ArrayList<>();
+    new BukkitRunnable() {
+      int index = 0;
+
+      public void run() {
+        try {
+          int count = plugin.config.file("recovery").getInt("blocks-per-tick");
+          for (int i = 0; i < count && index < b.volume(); i++, index++) {
+            int x = index % b.width(),
+                z = (index / b.width()) % b.depth(),
+                y = index / (b.width() * b.depth());
+            var block = plugin.worlds.market.getBlockAt(b.x1() + x, b.y1() + y, b.z1() + z);
+            if (!block.getType().isAir()) blocks.add(Blocks.capture(block, x, y, z));
+          }
+          if (index >= b.volume()) {
+            cancel();
+            manifest.set("blocks", blocks);
+            String serialized = manifest.saveToString();
+            String id = text(archive, "id");
+            long max = limit();
+            io.submit(
+                () -> {
+                  try {
+                    String checksum = ArchiveIO.write(path(id), serialized, max);
+                    Bukkit.getScheduler()
+                        .runTask(
+                            plugin,
+                            () -> {
+                              try {
+                                plugin.db.update(
+                                    "UPDATE archives SET checksum=?,state='RESETTING' WHERE id=?",
+                                    checksum,
+                                    id);
+                                plugin.db.update(
+                                    "UPDATE rentals SET state='RESETTING' WHERE id=?",
+                                    text(rental, "id"));
+                                plugin.db.update(
+                                    "UPDATE plots SET state='RESETTING' WHERE id=?", plot.id());
+                                reset(
+                                    plugin.db.one("SELECT * FROM archives WHERE id=?", id),
+                                    rental,
+                                    manifest);
+                              } catch (RuntimeException e) {
+                                fail(archive, e.getMessage());
+                              }
+                            });
+                  } catch (Exception e) {
+                    Bukkit.getScheduler().runTask(plugin, () -> fail(archive, e.getMessage()));
+                  }
+                });
+          }
+        } catch (RuntimeException e) {
+          cancel();
+          fail(archive, e.getMessage());
+        }
+      }
+    }.runTaskTimer(plugin, 1, 1);
+  }
+
+  private void reset(
+      Map<String, Object> archive, Map<String, Object> rental, YamlConfiguration manifest) {
+    Plot plot = plugin.config.plots.get(text(rental, "plot"));
+    Box b = plot.box();
+    plugin.shops.removeEntitiesForPlot(plot.id());
+    batch(
+        b,
+        index -> {
+          int x = index % b.width(),
+              z = index / b.width() % b.depth(),
+              y = index / (b.width() * b.depth());
+          Blocks.clear(plugin.worlds.market.getBlockAt(b.x1() + x, b.y1() + y, b.z1() + z));
+        },
+        () -> {
+          plugin.worlds.market.save(); // Flush before declaring the plot available.
+          plugin.db.transaction(
+              () -> {
+                plugin.db.update("DELETE FROM listings WHERE rental=?", text(rental, "id"));
+                plugin.db.update("DELETE FROM bells WHERE plot=?", plot.id());
+                plugin.db.update(
+                    "UPDATE rentals SET state='EXPIRED' WHERE id=?", text(rental, "id"));
+                plugin.db.update("UPDATE plots SET state='AVAILABLE' WHERE id=?", plot.id());
+                plugin.db.update(
+                    "UPDATE archives SET state='AVAILABLE',error=NULL WHERE id=?",
+                    text(archive, "id"));
+                return null;
+              });
+          running.remove(plot.id());
+          plugin.rentals.refresh();
+          Player p = Bukkit.getPlayer(UUID.fromString(text(rental, "owner")));
+          if (p != null)
+            plugin.info(
+                p,
+                "Your build was safely archived: "
+                    + text(archive, "id")
+                    + ". Rent another plot, then /market restore.");
+        },
+        e -> fail(archive, e.getMessage()));
+  }
+
+  void restore(Player player, String archiveId) {
+    var rental = plugin.rentals.requireOwner(player);
+    var archive =
+        plugin.db.one(
+            "SELECT * FROM archives WHERE id=? AND owner=? AND state='AVAILABLE'",
+            archiveId,
+            player.getUniqueId().toString());
+    if (archive == null)
+      throw new IllegalArgumentException("Archive is unavailable or belongs to someone else");
+    Plot plot = plugin.config.plots.get(text(rental, "plot"));
+    plugin.rentals.ensureEmpty(plot);
+    plugin.db.transaction(
+        () -> {
+          if (plugin.db.update(
+                  "UPDATE archives SET state='RESTORING',destination=? WHERE id=? AND"
+                      + " state='AVAILABLE'",
+                  text(rental, "id"),
+                  archiveId)
+              != 1) throw new IllegalArgumentException("Archive already claimed");
+          plugin.db.update(
+              "UPDATE plots SET state='RESTORING' WHERE id=? AND state='RENTED'", plot.id());
+          return null;
+        });
+    restoreInternal(plugin.db.one("SELECT * FROM archives WHERE id=?", archiveId), rental);
+    plugin.info(
+        player,
+        "Restoration started; your plot is locked until all blocks and contents are saved.");
+  }
+
+  private void restoreInternal(Map<String, Object> archive, Map<String, Object> rental) {
+    String plotId = text(rental, "plot");
+    if (!running.add(plotId)) return;
+    load(
+        archive,
+        manifest -> {
+          try {
+            List<Integer> d = manifest.getIntegerList("dimensions");
+            Plot plot = plugin.config.plots.get(plotId);
+            if (d.size() != 3 || !plot.box().fits(d.get(0), d.get(1), d.get(2)))
+              throw new IllegalArgumentException("Destination is too small");
+            if (manifest.getInt("version") != 1
+                || !manifest.getString("owner").equals(text(rental, "owner")))
+              throw new IllegalArgumentException("Archive ownership/version mismatch");
+            List<Map<?, ?>> blocks = Blocks.blockList(manifest);
+            Box b = plot.box();
+            for (var block : blocks) {
+              int x = Blocks.integer(block, "x"),
+                  y = Blocks.integer(block, "y"),
+                  z = Blocks.integer(block, "z");
+              if (x < 0 || x >= d.get(0) || y < 0 || y >= d.get(1) || z < 0 || z >= d.get(2))
+                throw new IllegalArgumentException("Invalid archived block position");
+              Bukkit.createBlockData(Objects.toString(block.get("block")));
+              if (block.containsKey("inventory"))
+                Items.decode(Objects.toString(block.get("inventory")));
+            }
+            batchList(
+                blocks,
+                block ->
+                    Blocks.data(
+                        plugin.worlds.market.getBlockAt(
+                            b.x1() + Blocks.integer(block, "x"),
+                            b.y1() + Blocks.integer(block, "y"),
+                            b.z1() + Blocks.integer(block, "z")),
+                        block),
+                () ->
+                    batchList(
+                        blocks,
+                        block ->
+                            Blocks.state(
+                                plugin.worlds.market.getBlockAt(
+                                    b.x1() + Blocks.integer(block, "x"),
+                                    b.y1() + Blocks.integer(block, "y"),
+                                    b.z1() + Blocks.integer(block, "z")),
+                                block),
+                        () -> {
+                          plugin.worlds.market.save();
+                          plugin.db.transaction(
+                              () -> {
+                                plugin.shops.restoreListings(manifest, rental, text(archive, "id"));
+                                plugin.bells.restore(manifest, rental);
+                                plugin.db.update(
+                                    "UPDATE archives SET state='USED',error=NULL WHERE id=? AND"
+                                        + " state='RESTORING'",
+                                    text(archive, "id"));
+                                plugin.db.update(
+                                    "UPDATE plots SET state='RENTED' WHERE id=?", plotId);
+                                return null;
+                              });
+                          running.remove(plotId);
+                          plugin.shops.repair();
+                          Player owner = Bukkit.getPlayer(UUID.fromString(text(rental, "owner")));
+                          if (owner != null)
+                            plugin.success(
+                                owner,
+                                "Build restored. This archive is consumed and cannot be restored"
+                                    + " again.");
+                        },
+                        e -> fail(archive, e.getMessage())),
+                e -> fail(archive, e.getMessage()));
+          } catch (RuntimeException e) {
+            plugin.db.update(
+                "UPDATE archives SET state='AVAILABLE',destination=NULL,error=? WHERE id=?",
+                e.getMessage(),
+                text(archive, "id"));
+            plugin.db.update("UPDATE plots SET state='RENTED' WHERE id=?", plotId);
+            running.remove(plotId);
+            plugin.getLogger().warning("Restore validation failed: " + e.getMessage());
+          }
+        });
+  }
+
+  private void load(
+      Map<String, Object> archive, java.util.function.Consumer<YamlConfiguration> result) {
+    long max = limit();
+    io.submit(
+        () -> {
+          try {
+            String value =
+                ArchiveIO.read(path(text(archive, "id")), max, text(archive, "checksum"));
+            Bukkit.getScheduler()
+                .runTask(
+                    plugin,
+                    () -> {
+                      try {
+                        YamlConfiguration y = new YamlConfiguration();
+                        y.loadFromString(value);
+                        result.accept(y);
+                      } catch (Exception e) {
+                        fail(archive, e.getMessage());
+                      }
+                    });
+          } catch (Exception e) {
+            Bukkit.getScheduler().runTask(plugin, () -> fail(archive, e.getMessage()));
+          }
+        });
+  }
+
+  private void fail(Map<String, Object> archive, String reason) {
+    running.remove(text(archive, "plot"));
+    plugin.db.update("UPDATE archives SET error=? WHERE id=?", reason, text(archive, "id"));
+    plugin
+        .getLogger()
+        .severe("Archive " + text(archive, "id") + " remains locked/recoverable: " + reason);
+  }
+
+  void batch(
+      Box box,
+      java.util.function.IntConsumer block,
+      Runnable done,
+      java.util.function.Consumer<RuntimeException> fail) {
+    new BukkitRunnable() {
+      int index = 0;
+
+      public void run() {
+        try {
+          int n = plugin.config.file("recovery").getInt("blocks-per-tick");
+          for (int i = 0; i < n && index < box.volume(); i++, index++) block.accept(index);
+          if (index >= box.volume()) {
+            cancel();
+            done.run();
+          }
+        } catch (RuntimeException e) {
+          cancel();
+          fail.accept(e);
+        }
+      }
+    }.runTaskTimer(plugin, 1, 1);
+  }
+
+  private void batchList(
+      List<Map<?, ?>> blocks,
+      java.util.function.Consumer<Map<?, ?>> block,
+      Runnable done,
+      java.util.function.Consumer<RuntimeException> fail) {
+    new BukkitRunnable() {
+      int index = 0;
+
+      public void run() {
+        try {
+          int n = plugin.config.file("recovery").getInt("blocks-per-tick");
+          for (int i = 0; i < n && index < blocks.size(); i++, index++)
+            block.accept(blocks.get(index));
+          if (index >= blocks.size()) {
+            cancel();
+            done.run();
+          }
+        } catch (RuntimeException e) {
+          cancel();
+          fail.accept(e);
+        }
+      }
+    }.runTaskTimer(plugin, 1, 1);
+  }
+
+  void retry(String id) {
+    var a = plugin.db.one("SELECT * FROM archives WHERE id=?", id);
+    if (a == null) throw new IllegalArgumentException("Unknown archive");
+    if (text(a, "state").equals("RESTORING")) {
+      var r = plugin.db.one("SELECT * FROM rentals WHERE id=?", text(a, "destination"));
+      restoreInternal(a, r);
+    } else {
+      var r = plugin.db.one("SELECT * FROM rentals WHERE id=?", text(a, "rental"));
+      expire(r);
+    }
+  }
+
+  void export(String id) throws Exception {
+    var a = plugin.db.one("SELECT * FROM archives WHERE id=?", id);
+    if (a == null) throw new IllegalArgumentException("Unknown archive");
+    ArchiveIO.read(path(id), limit(), text(a, "checksum"));
+    Path exports = plugin.getDataFolder().toPath().resolve("exports");
+    Files.createDirectories(exports);
+    Files.copy(path(id), exports.resolve(id + ".mrzip"), StandardCopyOption.REPLACE_EXISTING);
+  }
+
+  boolean busy() {
+    return !running.isEmpty();
+  }
+
+  @Override
+  public void close() {
+    io.shutdown();
+    try {
+      if (!io.awaitTermination(10, TimeUnit.SECONDS)) io.shutdownNow();
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
+  }
 }

@@ -1,5 +1,8 @@
 package com.marketrealms;
 
+import static com.marketrealms.Domain.*;
+
+import java.util.*;
 import net.kyori.adventure.text.Component;
 import org.bukkit.*;
 import org.bukkit.block.data.BlockData;
@@ -8,40 +11,352 @@ import org.bukkit.event.*;
 import org.bukkit.event.player.*;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.util.BoundingBox;
-import org.bukkit.util.Vector;
-import java.util.*;
-import static com.marketrealms.Domain.*;
 
 /** Paper's supported APIs send private entity/block packets; no packet-library dependency. */
 final class Previews implements Listener {
-    record Position(int x,int y,int z){Location at(World w){return new Location(w,x,y,z);}}
-    record Pad(String plot,String design,BoundingBox box,Location origin,TextDisplay label){ }
-    static final class Session {Location back;int page;String category="",design="";final List<Pad> pads=new ArrayList<>();final Map<Position,BlockData> blocks=new HashMap<>();final List<Entity> entities=new ArrayList<>();Pad selected;}
-    private final MarketRealmsPlugin plugin;private final Map<UUID,Session> sessions=new HashMap<>();
-    Previews(MarketRealmsPlugin plugin){this.plugin=plugin;Bukkit.getScheduler().runTaskTimer(plugin,this::tick,5,plugin.config.file("config").getInt("preview.highlight-ticks"));}
-    boolean inside(Player player){return player.getWorld()==plugin.worlds.preview;}
-    void enter(Player player,String category){if(!plugin.config.file("config").getBoolean("preview.enabled"))throw new IllegalArgumentException("Preview is disabled");if(plugin.trades!=null)plugin.trades.cancel(player,"Entered preview");plugin.journal.require(player);Session session=sessions.computeIfAbsent(player.getUniqueId(),id->{Session s=new Session();s.back=player.getLocation().clone();return s;});session.category=category==null?"":category;if(!player.teleport(plugin.worlds.previewSpawn())){sessions.remove(player.getUniqueId());throw new IllegalArgumentException("Preview teleport was blocked by another plugin");}isolate(player);Bukkit.getScheduler().runTaskLater(plugin,()->{if(inside(player)&&sessions.containsKey(player.getUniqueId()))show(player,session);},10);plugin.message(player,"preview",Map.of());}
-    void next(Player p){Session s=require(p);s.page++;clearVisual(p,s);show(p,s);}
-    void design(Player p,String id){Design d=plugin.config.designs.get(id);if(d==null||!d.enabled())throw new IllegalArgumentException("Unknown or disabled design");if(!inside(p))enter(p,"");Session s=require(p);s.design=id;clearVisual(p,s);Bukkit.getScheduler().runTaskLater(plugin,()->{if(inside(p))show(p,s);},10);}
-    private Session require(Player p){Session s=sessions.get(p.getUniqueId());if(s==null)throw new IllegalArgumentException("Enter /market preview first");return s;}
-    private void isolate(Player player){for(Player other:Bukkit.getOnlinePlayers())if(!other.equals(player)){player.hidePlayer(plugin,other);if(other.getWorld()==plugin.worlds.preview)other.hidePlayer(plugin,player);}}
-    private void show(Player player,Session s){try{List<Plot> plots=plugin.config.plots.values().stream().filter(p->plugin.rentals.available(p.id())&&(s.category.isEmpty()||p.categories().contains(s.category))).toList();if(plots.isEmpty()&&s.design.isEmpty()){plugin.info(player,"No available plots in this category.");return;}int spacing=plugin.config.file("config").getInt("preview.pad-spacing");Location spawn=plugin.worlds.previewSpawn();int maximum=plugin.config.file("config").getInt("preview.maximum-size");
-        for(int i=0;i<3;i++){Plot plot=plots.isEmpty()?null:plots.get((s.page*3+i)%plots.size());if(plot!=null&&i>=plots.size())break;Design design=s.design.isEmpty()?null:plugin.config.designs.get(s.design);int w=design==null?Math.min(maximum,plot.box().width()):design.width(),h=design==null?1:design.height(),d=design==null?Math.min(maximum,plot.box().depth()):design.depth();if(w>maximum||d>maximum){plugin.info(player,"Design exceeds preview maximum-size. Increase it or inspect its dimensions in the menu.");return;}Location origin=spawn.clone().add((i-1)*spacing-w/2.0,0,8);origin.setX(origin.getBlockX());origin.setY(origin.getBlockY());origin.setZ(origin.getBlockZ());
-            if(design==null){for(int x=0;x<w;x++)for(int z=0;z<d;z++)fake(player,s,origin.clone().add(x,-1,z),Bukkit.createBlockData(x==0||z==0||x==w-1||z==d-1?Material.GOLD_BLOCK:Material.SMOOTH_STONE));}else for(var block:Designs.shape(design))fake(player,s,origin.clone().add(Blocks.integer(block,"x"),Blocks.integer(block,"y"),Blocks.integer(block,"z")),Bukkit.createBlockData(Objects.toString(block.get("block"))));
-            String label=design==null?plot.name()+"\n"+plot.box().width()+"×"+plot.box().height()+"×"+plot.box().depth()+"\n"+String.join(", ",plot.categories())+"\nRight-click to inspect":design.name()+"\n"+design.description()+"\nRight-click for design options";
-            TextDisplay text=plugin.worlds.preview.spawn(origin.clone().add(w/2.0,h+1,d/2.0),TextDisplay.class,e->{e.setVisibleByDefault(false);e.setPersistent(false);e.setBillboard(Display.Billboard.CENTER);e.text(Component.text(label));e.getPersistentDataContainer().set(new NamespacedKey(plugin,"preview"),PersistentDataType.STRING,player.getUniqueId().toString());});player.showEntity(plugin,text);s.entities.add(text);s.pads.add(new Pad(plot==null?"":plot.id(),design==null?"":design.id(),new BoundingBox(origin.getX(),origin.getY()-1,origin.getZ(),origin.getX()+w,origin.getY()+Math.max(h,3),origin.getZ()+d),origin,text));}
-    }catch(RuntimeException e){cleanup(player,false);plugin.error(player,"Preview failed safely: "+e.getMessage());}}
-    private void fake(Player p,Session s,Location location,BlockData data){Position key=new Position(location.getBlockX(),location.getBlockY(),location.getBlockZ());s.blocks.put(key,data);p.sendBlockChange(key.at(plugin.worlds.preview),data);}
-    private void tick(){for(UUID id:new ArrayList<>(sessions.keySet())){Player p=Bukkit.getPlayer(id);if(p==null)continue;if(!inside(p)){cleanup(p,false);continue;}Session s=sessions.get(id);try{Pad selected=null;double near=Double.MAX_VALUE;Location eye=p.getEyeLocation();double reach=plugin.config.file("config").getDouble("preview.radius");for(Pad pad:s.pads){var hit=pad.box().rayTrace(eye.toVector(),eye.getDirection(),reach);if(hit!=null){double distance=hit.getHitPosition().distanceSquared(eye.toVector());if(distance<near){near=distance;selected=pad;}}}s.selected=selected;if(selected!=null){BoundingBox b=selected.box();Particle.DustOptions dust=new Particle.DustOptions(Color.YELLOW,1.2f);for(double x=b.getMinX();x<=b.getMaxX();x+=1.5){p.spawnParticle(Particle.DUST,x,b.getMinY()+0.05,b.getMinZ(),1,0,0,0,0,dust);p.spawnParticle(Particle.DUST,x,b.getMinY()+0.05,b.getMaxZ(),1,0,0,0,0,dust);}for(double z=b.getMinZ();z<=b.getMaxZ();z+=1.5){p.spawnParticle(Particle.DUST,b.getMinX(),b.getMinY()+0.05,z,1,0,0,0,0,dust);p.spawnParticle(Particle.DUST,b.getMaxX(),b.getMinY()+0.05,z,1,0,0,0,0,dust);}p.sendActionBar(Component.text(selected.design().isEmpty()?"Plot: "+selected.plot()+" | Right-click":"Design: "+selected.design()+" | Right-click"));}
-            // Client chunk refreshes can replace fake blocks. Only replay nearby loaded blocks.
-            if(plugin.clock%40==0)for(var entry:s.blocks.entrySet()){Location at=entry.getKey().at(plugin.worlds.preview);if(at.distanceSquared(p.getLocation())<4096&&at.getWorld().isChunkLoaded(at.getBlockX()>>4,at.getBlockZ()>>4))p.sendBlockChange(at,entry.getValue());}
-        }catch(RuntimeException e){cleanup(p,true);plugin.error(p,"Preview reset after an error: "+e.getMessage());}}}
-    @EventHandler(priority=EventPriority.HIGHEST)public void click(PlayerInteractEvent e){Session s=sessions.get(e.getPlayer().getUniqueId());if(s==null||!inside(e.getPlayer()))return;e.setCancelled(true);if(e.getHand()!=org.bukkit.inventory.EquipmentSlot.HAND)return;if(e.getAction()!=org.bukkit.event.block.Action.RIGHT_CLICK_AIR&&e.getAction()!=org.bukkit.event.block.Action.RIGHT_CLICK_BLOCK)return;if(s.selected==null)return;Pad pad=s.selected;Player p=e.getPlayer();if(pad.design().isEmpty())plugin.menus.plot(p,pad.plot());else plugin.menus.design(p,pad.design());}
-    void exit(Player p){cleanup(p,true);}
-    void cleanup(Player player,boolean teleport){Session s=sessions.remove(player.getUniqueId());if(s!=null){clearVisual(player,s);for(Player other:Bukkit.getOnlinePlayers()){player.showPlayer(plugin,other);other.showPlayer(plugin,player);}if(teleport&&player.isOnline()){Location back=s.back;if(back==null||back.getWorld()==plugin.worlds.preview)back=plugin.worlds.exit();player.teleport(back);}}else if(teleport&&inside(player))player.teleport(plugin.worlds.exit());}
-    private void clearVisual(Player p,Session s){for(Entity entity:s.entities)entity.remove();s.entities.clear();if(inside(p))for(Position key:s.blocks.keySet()){Location at=key.at(plugin.worlds.preview);if(at.getWorld().isChunkLoaded(key.x()>>4,key.z()>>4))p.sendBlockChange(at,at.getBlock().getBlockData());}s.blocks.clear();s.pads.clear();s.selected=null;}
-    @EventHandler public void quit(PlayerQuitEvent e){cleanup(e.getPlayer(),false);}
-    @EventHandler public void change(PlayerChangedWorldEvent e){Player p=e.getPlayer();if(!inside(p))cleanup(p,false);else if(sessions.containsKey(p.getUniqueId()))isolate(p);else p.teleport(plugin.worlds.exit());}
-    @EventHandler public void join(PlayerJoinEvent e){Player p=e.getPlayer();if(inside(p))Bukkit.getScheduler().runTask(plugin,()->p.teleport(plugin.worlds.exit()));for(UUID id:sessions.keySet()){Player viewer=Bukkit.getPlayer(id);if(viewer!=null&&!viewer.equals(p))viewer.hidePlayer(plugin,p);}}
-    void clearAll(){for(Player p:Bukkit.getOnlinePlayers())cleanup(p,true);sessions.clear();}
+  record Position(int x, int y, int z) {
+    Location at(World w) {
+      return new Location(w, x, y, z);
+    }
+  }
+
+  record Pad(String plot, String design, BoundingBox box, Location origin, TextDisplay label) {}
+
+  static final class Session {
+    Location back;
+    int page;
+    String category = "", design = "";
+    final List<Pad> pads = new ArrayList<>();
+    final Map<Position, BlockData> blocks = new HashMap<>();
+    final List<Entity> entities = new ArrayList<>();
+    Pad selected;
+  }
+
+  private final MarketRealmsPlugin plugin;
+  private final Map<UUID, Session> sessions = new HashMap<>();
+
+  Previews(MarketRealmsPlugin plugin) {
+    this.plugin = plugin;
+    Bukkit.getScheduler()
+        .runTaskTimer(
+            plugin, this::tick, 5, plugin.config.file("config").getInt("preview.highlight-ticks"));
+  }
+
+  boolean inside(Player player) {
+    return player.getWorld() == plugin.worlds.preview;
+  }
+
+  void enter(Player player, String category) {
+    if (!plugin.config.file("config").getBoolean("preview.enabled"))
+      throw new IllegalArgumentException("Preview is disabled");
+    if (plugin.trades != null) plugin.trades.cancel(player, "Entered preview");
+    plugin.journal.require(player);
+    Session session =
+        sessions.computeIfAbsent(
+            player.getUniqueId(),
+            id -> {
+              Session s = new Session();
+              s.back = player.getLocation().clone();
+              return s;
+            });
+    session.category = category == null ? "" : category;
+    if (!player.teleport(plugin.worlds.previewSpawn())) {
+      sessions.remove(player.getUniqueId());
+      throw new IllegalArgumentException("Preview teleport was blocked by another plugin");
+    }
+    isolate(player);
+    Bukkit.getScheduler()
+        .runTaskLater(
+            plugin,
+            () -> {
+              if (inside(player) && sessions.containsKey(player.getUniqueId()))
+                show(player, session);
+            },
+            10);
+    plugin.message(player, "preview", Map.of());
+  }
+
+  void next(Player p) {
+    Session s = require(p);
+    s.page++;
+    clearVisual(p, s);
+    show(p, s);
+  }
+
+  void design(Player p, String id) {
+    Design d = plugin.config.designs.get(id);
+    if (d == null || !d.enabled()) throw new IllegalArgumentException("Unknown or disabled design");
+    if (!inside(p)) enter(p, "");
+    Session s = require(p);
+    s.design = id;
+    clearVisual(p, s);
+    Bukkit.getScheduler()
+        .runTaskLater(
+            plugin,
+            () -> {
+              if (inside(p)) show(p, s);
+            },
+            10);
+  }
+
+  private Session require(Player p) {
+    Session s = sessions.get(p.getUniqueId());
+    if (s == null) throw new IllegalArgumentException("Enter /market preview first");
+    return s;
+  }
+
+  private void isolate(Player player) {
+    for (Player other : Bukkit.getOnlinePlayers())
+      if (!other.equals(player)) {
+        player.hidePlayer(plugin, other);
+        if (other.getWorld() == plugin.worlds.preview) other.hidePlayer(plugin, player);
+      }
+  }
+
+  private void show(Player player, Session s) {
+    try {
+      List<Plot> plots =
+          plugin.config.plots.values().stream()
+              .filter(
+                  p ->
+                      plugin.rentals.available(p.id())
+                          && (s.category.isEmpty() || p.categories().contains(s.category)))
+              .toList();
+      if (plots.isEmpty() && s.design.isEmpty()) {
+        plugin.info(player, "No available plots in this category.");
+        return;
+      }
+      int spacing = plugin.config.file("config").getInt("preview.pad-spacing");
+      Location spawn = plugin.worlds.previewSpawn();
+      int maximum = plugin.config.file("config").getInt("preview.maximum-size");
+      for (int i = 0; i < 3; i++) {
+        Plot plot = plots.isEmpty() ? null : plots.get((s.page * 3 + i) % plots.size());
+        if (plot != null && i >= plots.size()) break;
+        Design design = s.design.isEmpty() ? null : plugin.config.designs.get(s.design);
+        int w = design == null ? Math.min(maximum, plot.box().width()) : design.width(),
+            h = design == null ? 1 : design.height(),
+            d = design == null ? Math.min(maximum, plot.box().depth()) : design.depth();
+        if (w > maximum || d > maximum) {
+          plugin.info(
+              player,
+              "Design exceeds preview maximum-size. Increase it or inspect its dimensions in the"
+                  + " menu.");
+          return;
+        }
+        Location origin = spawn.clone().add((i - 1) * spacing - w / 2.0, 0, 8);
+        origin.setX(origin.getBlockX());
+        origin.setY(origin.getBlockY());
+        origin.setZ(origin.getBlockZ());
+        if (design == null) {
+          for (int x = 0; x < w; x++)
+            for (int z = 0; z < d; z++)
+              fake(
+                  player,
+                  s,
+                  origin.clone().add(x, -1, z),
+                  Bukkit.createBlockData(
+                      x == 0 || z == 0 || x == w - 1 || z == d - 1
+                          ? Material.GOLD_BLOCK
+                          : Material.SMOOTH_STONE));
+        } else
+          for (var block : Designs.shape(design))
+            fake(
+                player,
+                s,
+                origin
+                    .clone()
+                    .add(
+                        Blocks.integer(block, "x"),
+                        Blocks.integer(block, "y"),
+                        Blocks.integer(block, "z")),
+                Bukkit.createBlockData(Objects.toString(block.get("block"))));
+        String label =
+            design == null
+                ? plot.name()
+                    + "\n"
+                    + plot.box().width()
+                    + "×"
+                    + plot.box().height()
+                    + "×"
+                    + plot.box().depth()
+                    + "\n"
+                    + String.join(", ", plot.categories())
+                    + "\nRight-click to inspect"
+                : design.name() + "\n" + design.description() + "\nRight-click for design options";
+        TextDisplay text =
+            plugin.worlds.preview.spawn(
+                origin.clone().add(w / 2.0, h + 1, d / 2.0),
+                TextDisplay.class,
+                e -> {
+                  e.setVisibleByDefault(false);
+                  e.setPersistent(false);
+                  e.setBillboard(Display.Billboard.CENTER);
+                  e.text(Component.text(label));
+                  e.getPersistentDataContainer()
+                      .set(
+                          new NamespacedKey(plugin, "preview"),
+                          PersistentDataType.STRING,
+                          player.getUniqueId().toString());
+                });
+        player.showEntity(plugin, text);
+        s.entities.add(text);
+        s.pads.add(
+            new Pad(
+                plot == null ? "" : plot.id(),
+                design == null ? "" : design.id(),
+                new BoundingBox(
+                    origin.getX(),
+                    origin.getY() - 1,
+                    origin.getZ(),
+                    origin.getX() + w,
+                    origin.getY() + Math.max(h, 3),
+                    origin.getZ() + d),
+                origin,
+                text));
+      }
+    } catch (RuntimeException e) {
+      cleanup(player, false);
+      plugin.error(player, "Preview failed safely: " + e.getMessage());
+    }
+  }
+
+  private void fake(Player p, Session s, Location location, BlockData data) {
+    Position key = new Position(location.getBlockX(), location.getBlockY(), location.getBlockZ());
+    s.blocks.put(key, data);
+    p.sendBlockChange(key.at(plugin.worlds.preview), data);
+  }
+
+  private void tick() {
+    for (UUID id : new ArrayList<>(sessions.keySet())) {
+      Player p = Bukkit.getPlayer(id);
+      if (p == null) continue;
+      if (!inside(p)) {
+        cleanup(p, false);
+        continue;
+      }
+      Session s = sessions.get(id);
+      try {
+        Pad selected = null;
+        double near = Double.MAX_VALUE;
+        Location eye = p.getEyeLocation();
+        double reach = plugin.config.file("config").getDouble("preview.radius");
+        for (Pad pad : s.pads) {
+          var hit = pad.box().rayTrace(eye.toVector(), eye.getDirection(), reach);
+          if (hit != null) {
+            double distance = hit.getHitPosition().distanceSquared(eye.toVector());
+            if (distance < near) {
+              near = distance;
+              selected = pad;
+            }
+          }
+        }
+        s.selected = selected;
+        if (selected != null) {
+          BoundingBox b = selected.box();
+          Particle.DustOptions dust = new Particle.DustOptions(Color.YELLOW, 1.2f);
+          for (double x = b.getMinX(); x <= b.getMaxX(); x += 1.5) {
+            p.spawnParticle(Particle.DUST, x, b.getMinY() + 0.05, b.getMinZ(), 1, 0, 0, 0, 0, dust);
+            p.spawnParticle(Particle.DUST, x, b.getMinY() + 0.05, b.getMaxZ(), 1, 0, 0, 0, 0, dust);
+          }
+          for (double z = b.getMinZ(); z <= b.getMaxZ(); z += 1.5) {
+            p.spawnParticle(Particle.DUST, b.getMinX(), b.getMinY() + 0.05, z, 1, 0, 0, 0, 0, dust);
+            p.spawnParticle(Particle.DUST, b.getMaxX(), b.getMinY() + 0.05, z, 1, 0, 0, 0, 0, dust);
+          }
+          p.sendActionBar(
+              Component.text(
+                  selected.design().isEmpty()
+                      ? "Plot: " + selected.plot() + " | Right-click"
+                      : "Design: " + selected.design() + " | Right-click"));
+        }
+        // Client chunk refreshes can replace fake blocks. Only replay nearby loaded blocks.
+        if (plugin.clock % 40 == 0)
+          for (var entry : s.blocks.entrySet()) {
+            Location at = entry.getKey().at(plugin.worlds.preview);
+            if (at.distanceSquared(p.getLocation()) < 4096
+                && at.getWorld().isChunkLoaded(at.getBlockX() >> 4, at.getBlockZ() >> 4))
+              p.sendBlockChange(at, entry.getValue());
+          }
+      } catch (RuntimeException e) {
+        cleanup(p, true);
+        plugin.error(p, "Preview reset after an error: " + e.getMessage());
+      }
+    }
+  }
+
+  @EventHandler(priority = EventPriority.HIGHEST)
+  public void click(PlayerInteractEvent e) {
+    Session s = sessions.get(e.getPlayer().getUniqueId());
+    if (s == null || !inside(e.getPlayer())) return;
+    e.setCancelled(true);
+    if (e.getHand() != org.bukkit.inventory.EquipmentSlot.HAND) return;
+    if (e.getAction() != org.bukkit.event.block.Action.RIGHT_CLICK_AIR
+        && e.getAction() != org.bukkit.event.block.Action.RIGHT_CLICK_BLOCK) return;
+    if (s.selected == null) return;
+    Pad pad = s.selected;
+    Player p = e.getPlayer();
+    if (pad.design().isEmpty()) plugin.menus.plot(p, pad.plot());
+    else plugin.menus.design(p, pad.design());
+  }
+
+  void exit(Player p) {
+    cleanup(p, true);
+  }
+
+  void cleanup(Player player, boolean teleport) {
+    Session s = sessions.remove(player.getUniqueId());
+    if (s != null) {
+      clearVisual(player, s);
+      for (Player other : Bukkit.getOnlinePlayers()) {
+        player.showPlayer(plugin, other);
+        other.showPlayer(plugin, player);
+      }
+      if (teleport && player.isOnline()) {
+        Location back = s.back;
+        if (back == null || back.getWorld() == plugin.worlds.preview) back = plugin.worlds.exit();
+        player.teleport(back);
+      }
+    } else if (teleport && inside(player)) player.teleport(plugin.worlds.exit());
+  }
+
+  private void clearVisual(Player p, Session s) {
+    for (Entity entity : s.entities) entity.remove();
+    s.entities.clear();
+    if (inside(p))
+      for (Position key : s.blocks.keySet()) {
+        Location at = key.at(plugin.worlds.preview);
+        if (at.getWorld().isChunkLoaded(key.x() >> 4, key.z() >> 4))
+          p.sendBlockChange(at, at.getBlock().getBlockData());
+      }
+    s.blocks.clear();
+    s.pads.clear();
+    s.selected = null;
+  }
+
+  @EventHandler
+  public void quit(PlayerQuitEvent e) {
+    cleanup(e.getPlayer(), false);
+  }
+
+  @EventHandler
+  public void change(PlayerChangedWorldEvent e) {
+    Player p = e.getPlayer();
+    if (!inside(p)) cleanup(p, false);
+    else if (sessions.containsKey(p.getUniqueId())) isolate(p);
+    else p.teleport(plugin.worlds.exit());
+  }
+
+  @EventHandler
+  public void join(PlayerJoinEvent e) {
+    Player p = e.getPlayer();
+    if (inside(p)) Bukkit.getScheduler().runTask(plugin, () -> p.teleport(plugin.worlds.exit()));
+    for (UUID id : sessions.keySet()) {
+      Player viewer = Bukkit.getPlayer(id);
+      if (viewer != null && !viewer.equals(p)) viewer.hidePlayer(plugin, p);
+    }
+  }
+
+  void clearAll() {
+    for (Player p : Bukkit.getOnlinePlayers()) cleanup(p, true);
+    sessions.clear();
+  }
 }
