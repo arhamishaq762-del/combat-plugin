@@ -49,6 +49,10 @@ final class Blocks {
       throw new IllegalStateException("Block PDC capture failed", e);
     }
     if (state instanceof Container container) {
+      if (container.isLocked())
+        throw new IllegalArgumentException(
+            "Locked containers need manual reconciliation before archiving; the plot was not"
+                + " reset");
       data.put("inventory", Items.encode(container.getSnapshotInventory().getContents()));
       data.put("lock", container.getLock());
       if (container.customName() != null)
@@ -95,7 +99,9 @@ final class Blocks {
       if (contents.length != container.getSnapshotInventory().getSize())
         throw new IllegalArgumentException("Container size changed");
       container.getSnapshotInventory().setContents(contents);
-      container.setLock(Objects.toString(data.get("lock"), ""));
+      // Do not call setLock(""): Paper 1.21.11 may create an invalid lock component.
+      if (!Objects.toString(data.get("lock"), "").isEmpty())
+        throw new IllegalArgumentException("Archive contains an unsupported custom container lock");
       if (data.containsKey("name"))
         container.customName(
             GsonComponentSerializer.gson().deserialize(Objects.toString(data.get("name"))));
