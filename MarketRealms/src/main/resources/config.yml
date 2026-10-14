@@ -14,12 +14,10 @@ preview:
   maximum-size: 16
   highlight-ticks: 5
 protection:
-  enabled: true
   require-survival: true
   # No administrative bypass for financial operations or active recovery locks.
   admin-build-bypass: false
   disable-natural-mobs: true
-  reject-unsupported-block-entities: true
 limits:
   max-plot-volume: 32768
   max-listings-per-owner: 32
@@ -31,4 +29,3 @@ rentals:
 economy:
   money-enabled: true
   # Amounts are exact two-decimal integer cents, never converted to emeralds.
-  max-money: '10000000.00'

@@ -88,7 +88,7 @@ public final class MarketRealmsPlugin extends JavaPlugin implements Listener {
               });
       getLogger()
           .info(
-              "MarketRealms enabled. SQLite schema 1; private previews use Paper packet-backed"
+              "MarketRealms enabled. SQLite schema 2; private previews use Paper packet-backed"
                   + " visibility APIs. Money available: "
                   + money.available());
     } catch (Exception | LinkageError e) {

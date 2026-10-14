@@ -11,6 +11,20 @@ final class Worlds {
 
   Worlds(MarketRealmsPlugin plugin) {
     this.plugin = plugin;
+    for (String key : List.of("worlds.marketplace", "worlds.preview")) {
+      String requested = plugin.config.file("config").getString(key);
+      var stored = plugin.db.one("SELECT value FROM metadata WHERE key=?", key);
+      if (stored != null
+          && !Store.text(stored, "value").equals(requested)
+          && plugin.db.one("SELECT id FROM rentals LIMIT 1") != null)
+        throw new IllegalArgumentException(
+            "World identity cannot change while historical rentals/archives exist. Restore"
+                + " configuration and perform a deliberate offline migration.");
+      plugin.db.update(
+          "INSERT INTO metadata VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+          key,
+          requested);
+    }
     market = load(plugin.config.file("config").getString("worlds.marketplace"));
     preview = load(plugin.config.file("config").getString("worlds.preview"));
     if (market == preview) throw new IllegalArgumentException("Worlds must differ");

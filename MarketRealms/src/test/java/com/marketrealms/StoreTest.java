@@ -34,7 +34,7 @@ class StoreTest {
 
   @Test
   void schemaVersionPersisted() {
-    assertEquals(1, Store.number(db.one("PRAGMA user_version"), "user_version"));
+    assertEquals(2, Store.number(db.one("PRAGMA user_version"), "user_version"));
   }
 
   @Test

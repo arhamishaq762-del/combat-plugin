@@ -377,6 +377,9 @@ final class Shops {
                   e.setGravity(false);
                   e.setPersistent(true);
                   e.setItemStack(item(r));
+                  var transform = e.getTransformation();
+                  transform.getScale().set(plugin.config.file("shops").getDouble("display-scale"));
+                  e.setTransformation(transform);
                   e.setItemDisplayTransform(ItemDisplay.ItemDisplayTransform.FIXED);
                   e.getPersistentDataContainer()
                       .set(listingKey, PersistentDataType.STRING, text(r, "id"));

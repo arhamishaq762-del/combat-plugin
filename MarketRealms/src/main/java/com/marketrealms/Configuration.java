@@ -47,6 +47,12 @@ final class Configuration {
       files.put(file, y);
     }
     var main = file("config");
+    if (main.getInt("config-version") != 1 || file("recovery").getInt("format-version") != 1)
+      throw new IllegalArgumentException("Unsupported configuration/archive format version");
+    if (!file("recovery").getString("unsupported-block-entity-policy").equals("LOCK"))
+      throw new IllegalArgumentException(
+          "Only fail-closed LOCK is a supported block-entity policy");
+    range("recovery", "used-archive-retention-days", 0, 36500);
     if (main.getString("worlds.marketplace").equals(main.getString("worlds.preview")))
       throw new IllegalArgumentException("Marketplace and preview must be different worlds");
     for (String world :
@@ -68,6 +74,7 @@ final class Configuration {
     range("trade", "maximum-distance", 1, 32);
     range("trade", "maximum-offer-slots", 1, 18);
     range("bell", "cooldown-seconds", 1, 3600);
+    range("shops", "display-scale", 0.1, 2);
     for (var entry : files.entrySet()) {
       for (String key : entry.getValue().getKeys(true))
         if (key.endsWith(".enabled") && !(entry.getValue().get(key) instanceof Boolean))

@@ -87,12 +87,20 @@ final class Store implements AutoCloseable {
     int version =
         ((Number) Objects.requireNonNull(one("PRAGMA user_version")).get("user_version"))
             .intValue();
-    if (version > 1) throw new IllegalStateException("Database schema is newer than this plugin");
+    if (version > 2) throw new IllegalStateException("Database schema is newer than this plugin");
     if (version == 0)
       transaction(
           () -> {
             for (String ddl : SCHEMA) update(ddl);
             update("PRAGMA user_version=1");
+            return null;
+          });
+    if (version < 2)
+      transaction(
+          () -> {
+            update("ALTER TABLE archives ADD COLUMN used_at INTEGER");
+            update("CREATE TABLE metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL)");
+            update("PRAGMA user_version=2");
             return null;
           });
   }

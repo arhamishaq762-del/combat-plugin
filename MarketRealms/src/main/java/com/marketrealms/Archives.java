@@ -281,7 +281,9 @@ final class Archives implements AutoCloseable {
                                 plugin.shops.restoreListings(manifest, rental, text(archive, "id"));
                                 plugin.bells.restore(manifest, rental);
                                 plugin.db.update(
-                                    "UPDATE archives SET state='USED',error=NULL WHERE id=? AND"
+                                    "UPDATE archives SET state='USED',error=NULL,used_at="
+                                        + System.currentTimeMillis()
+                                        + " WHERE id=? AND"
                                         + " state='RESTORING'",
                                     text(archive, "id"));
                                 plugin.db.update(
@@ -419,6 +421,53 @@ final class Archives implements AutoCloseable {
     Path exports = plugin.getDataFolder().toPath().resolve("exports");
     Files.createDirectories(exports);
     Files.copy(path(id), exports.resolve(id + ".mrzip"), StandardCopyOption.REPLACE_EXISTING);
+  }
+
+  void retention() {
+    var c = plugin.config.file("recovery");
+    long days = c.getLong("used-archive-retention-days");
+    if (c.getBoolean("keep-used-archives") || days <= 0 || busy()) return;
+    long cutoff = System.currentTimeMillis() - days * 86400000L;
+    for (var row :
+        plugin.db.rows(
+            "SELECT * FROM archives WHERE state='USED' AND used_at IS NOT NULL AND used_at<?",
+            cutoff)) {
+      String id = text(row, "id"), checksum = text(row, "checksum");
+      long maximum = limit();
+      io.submit(
+          () -> {
+            try {
+              ArchiveIO.read(path(id), maximum, checksum);
+              Path backup =
+                  plugin.getDataFolder().toPath().resolve("exports").resolve(id + ".mrzip");
+              Files.createDirectories(backup.getParent());
+              Files.copy(path(id), backup, StandardCopyOption.REPLACE_EXISTING);
+              if (!ArchiveIO.checksum(backup).equals(checksum))
+                throw new IllegalStateException("Retention backup verification failed");
+              Bukkit.getScheduler()
+                  .runTask(
+                      plugin,
+                      () -> {
+                        if (plugin.db.update(
+                                "UPDATE archives SET state='RETIRED' WHERE id=? AND state='USED'",
+                                id)
+                            == 1)
+                          io.submit(
+                              () -> {
+                                try {
+                                  Files.deleteIfExists(path(id));
+                                } catch (Exception e) {
+                                  plugin
+                                      .getLogger()
+                                      .warning("Retired archive file retained: " + e.getMessage());
+                                }
+                              });
+                      });
+            } catch (Exception e) {
+              plugin.getLogger().warning("Archive retention skipped safely: " + e.getMessage());
+            }
+          });
+    }
   }
 
   boolean busy() {
