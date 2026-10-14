@@ -144,17 +144,17 @@ final class Archives implements AutoCloseable {
                                     rental,
                                     manifest);
                               } catch (RuntimeException e) {
-                                fail(archive, e.getMessage());
+                                fail(archive, e);
                               }
                             });
                   } catch (Exception e) {
-                    Bukkit.getScheduler().runTask(plugin, () -> fail(archive, e.getMessage()));
+                    Bukkit.getScheduler().runTask(plugin, () -> fail(archive, e));
                   }
                 });
           }
         } catch (RuntimeException e) {
           cancel();
-          fail(archive, e.getMessage());
+          fail(archive, e);
         }
       }
     }.runTaskTimer(plugin, 1, 1);
@@ -197,7 +197,7 @@ final class Archives implements AutoCloseable {
                     + text(archive, "id")
                     + ". Rent another plot, then /market restore.");
         },
-        e -> fail(archive, e.getMessage()));
+        e -> fail(archive, e));
   }
 
   void restore(Player player, String archiveId) {
@@ -299,8 +299,8 @@ final class Archives implements AutoCloseable {
                                 "Build restored. This archive is consumed and cannot be restored"
                                     + " again.");
                         },
-                        e -> fail(archive, e.getMessage())),
-                e -> fail(archive, e.getMessage()));
+                        e -> fail(archive, e)),
+                e -> fail(archive, e));
           } catch (RuntimeException e) {
             plugin.db.update(
                 "UPDATE archives SET state='AVAILABLE',destination=NULL,error=? WHERE id=?",
@@ -330,13 +330,27 @@ final class Archives implements AutoCloseable {
                         y.loadFromString(value);
                         result.accept(y);
                       } catch (Exception e) {
-                        fail(archive, e.getMessage());
+                        fail(archive, e);
                       }
                     });
           } catch (Exception e) {
-            Bukkit.getScheduler().runTask(plugin, () -> fail(archive, e.getMessage()));
+            Bukkit.getScheduler().runTask(plugin, () -> fail(archive, e));
           }
         });
+  }
+
+  private void fail(Map<String, Object> archive, Throwable error) {
+    plugin
+        .getLogger()
+        .log(
+            java.util.logging.Level.SEVERE,
+            "Archive step failed without unlocking the plot: " + text(archive, "id"),
+            error);
+    fail(
+        archive,
+        error.getClass().getSimpleName()
+            + ": "
+            + Objects.toString(error.getMessage(), "No further detail"));
   }
 
   private void fail(Map<String, Object> archive, String reason) {
