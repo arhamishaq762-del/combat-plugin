@@ -1,0 +1,31 @@
+config-version: 1
+worlds:
+  marketplace: marketrealms_market
+  preview: marketrealms_preview
+  create-missing: true
+  market-spawn: [2.5, 65.0, 2.5, 0.0, 0.0]
+  preview-spawn: [0.5, 65.0, 0.5, 0.0, 0.0]
+  # Empty means first loaded non-market, non-preview world.
+  exit-world: ''
+preview:
+  enabled: true
+  radius: 6.0
+  pad-spacing: 22
+  maximum-size: 16
+  highlight-ticks: 5
+protection:
+  require-survival: true
+  # No administrative bypass for financial operations or active recovery locks.
+  admin-build-bypass: false
+  disable-natural-mobs: true
+limits:
+  max-plot-volume: 32768
+  max-listings-per-owner: 32
+  max-stock: 65536
+  interaction-distance: 4.5
+rentals:
+  expiration-check-ticks: 20
+  warning-hours: [24, 6, 1]
+economy:
+  money-enabled: true
+  # Amounts are exact two-decimal integer cents, never converted to emeralds.

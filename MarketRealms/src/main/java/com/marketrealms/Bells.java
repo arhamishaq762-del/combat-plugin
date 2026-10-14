@@ -1,0 +1,137 @@
+package com.marketrealms;
+
+import static com.marketrealms.Store.*;
+
+import java.util.*;
+import org.bukkit.*;
+import org.bukkit.block.Block;
+import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.entity.Player;
+
+final class Bells {
+  private final MarketRealmsPlugin plugin;
+  private final Map<String, Long> cooldowns = new HashMap<>();
+
+  Bells(MarketRealmsPlugin plugin) {
+    this.plugin = plugin;
+  }
+
+  void set(Player p) {
+    var rental = plugin.rentals.requireOwner(p);
+    Block bell = p.getTargetBlockExact(4);
+    if (bell == null
+        || bell.getType() != Material.BELL
+        || !plugin.rentals.canBuild(p, bell.getLocation()))
+      throw new IllegalArgumentException("Look at a bell in your own plot");
+    plugin.db.update(
+        "INSERT INTO bells VALUES(?,?,?,?,?) ON CONFLICT(plot) DO UPDATE SET"
+            + " owner=excluded.owner,x=excluded.x,y=excluded.y,z=excluded.z",
+        text(rental, "plot"),
+        p.getUniqueId().toString(),
+        bell.getX(),
+        bell.getY(),
+        bell.getZ());
+    plugin.success(p, "Shop bell registered");
+  }
+
+  void remove(Player p) {
+    var rental = plugin.rentals.requireOwner(p);
+    plugin.db.update(
+        "DELETE FROM bells WHERE plot=? AND owner=?",
+        text(rental, "plot"),
+        p.getUniqueId().toString());
+    plugin.success(p, "Bell unregistered");
+  }
+
+  boolean ring(Player customer, Block block) {
+    if (!plugin.config.file("bell").getBoolean("enabled")) return false;
+    var row =
+        plugin.db.one(
+            "SELECT * FROM bells WHERE x=? AND y=? AND z=?",
+            block.getX(),
+            block.getY(),
+            block.getZ());
+    if (row == null) return false;
+    var plot = plugin.rentals.at(block.getLocation());
+    if (plot == null
+        || plugin.rentals.onPlot(plot.id()) == null
+        || plugin.archives.locked(plot.id()))
+      throw new IllegalArgumentException("Shop bell is inactive");
+    if (!plot.box().contains(customer.getLocation())
+        || customer.getLocation().distanceSquared(block.getLocation().add(.5, .5, .5)) > 20.25)
+      throw new IllegalArgumentException("Stand inside the shop near its bell");
+    Block visible = customer.getTargetBlockExact(4);
+    if (visible == null || !visible.equals(block))
+      throw new IllegalArgumentException("Bell interaction is blocked by a wall");
+    String key = customer.getUniqueId() + ":" + plot.id();
+    long now = System.currentTimeMillis();
+    long wait = plugin.config.file("bell").getLong("cooldown-seconds") * 1000;
+    if (now - cooldowns.getOrDefault(key, 0L) < wait) {
+      plugin.info(customer, "Bell cooldown; please wait");
+      return true;
+    }
+    cooldowns.put(key, now);
+    UUID owner = UUID.fromString(text(row, "owner"));
+    Player seller = Bukkit.getPlayer(owner);
+    Map<String, String> data =
+        Map.of(
+            "customer",
+            customer.getName(),
+            "plot",
+            plot.name(),
+            "location",
+            block.getX() + ", " + block.getY() + ", " + block.getZ());
+    if (seller != null) {
+      plugin.message(seller, "bell", data);
+      plugin.info(customer, "The shop owner has been notified");
+    } else {
+      if (plugin.config.file("bell").getBoolean("offline-notifications")) {
+        String message = plugin.render("bell", data);
+        plugin.db.update(
+            "INSERT INTO notifications VALUES(?,?,?,?)",
+            UUID.randomUUID().toString(),
+            owner.toString(),
+            message,
+            now);
+      }
+      plugin.info(
+          customer,
+          "Owner is offline"
+              + (plugin.config.file("bell").getBoolean("offline-notifications")
+                  ? "; a notification was queued"
+                  : ""));
+    }
+    if (plugin.config.file("bell").getBoolean("play-sound"))
+      customer.playSound(block.getLocation(), Sound.BLOCK_BELL_USE, 1, 1);
+    return true;
+  }
+
+  void login(Player p) {
+    for (var n :
+        plugin.db.rows(
+            "SELECT * FROM notifications WHERE owner=? ORDER BY created LIMIT 20",
+            p.getUniqueId().toString())) {
+      p.sendMessage(text(n, "message"));
+      plugin.db.update("DELETE FROM notifications WHERE id=?", text(n, "id"));
+    }
+  }
+
+  void restore(YamlConfiguration manifest, Map<String, Object> rental) {
+    var bell = manifest.getConfigurationSection("bell");
+    if (bell == null) return;
+    List<Integer> origin = manifest.getIntegerList("origin");
+    var box = plugin.config.plots.get(text(rental, "plot")).box();
+    int x = bell.getInt("x") - origin.get(0) + box.x1(),
+        y = bell.getInt("y") - origin.get(1) + box.y1(),
+        z = bell.getInt("z") - origin.get(2) + box.z1();
+    if (box.contains(x, y, z)
+        && plugin.worlds.market.getBlockAt(x, y, z).getType() == Material.BELL)
+      plugin.db.update(
+          "INSERT OR REPLACE INTO bells VALUES(?,?,?,?,?)",
+          text(rental, "plot"),
+          text(rental, "owner"),
+          x,
+          y,
+          z);
+  }
+}

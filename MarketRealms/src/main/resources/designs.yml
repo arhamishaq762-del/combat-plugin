@@ -1,0 +1,26 @@
+designs:
+  oak_stall:
+    enabled: true
+    name: Oak market stall
+    description: A small open-front survival shop
+    dimensions: [7, 5, 7]
+    categories: []
+    emeralds: 16
+    money: '200.00'
+    floor: minecraft:oak_planks
+    wall: minecraft:oak_log[axis=y]
+    roof: minecraft:oak_planks
+    window: minecraft:glass
+  stone_shop:
+    enabled: true
+    name: Stone shop
+    description: A sturdy shop with display windows
+    dimensions: [9, 6, 9]
+    categories: []
+    emeralds: 32
+    money: '450.00'
+    floor: minecraft:stone_bricks
+    wall: minecraft:stone_bricks
+    roof: minecraft:stone_bricks
+    window: minecraft:glass
+# Procedural shells contain NO prefilled inventories or free item stock.

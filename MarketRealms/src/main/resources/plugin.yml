@@ -1,0 +1,49 @@
+name: MarketRealms
+version: 1.0.0
+main: com.marketrealms.MarketRealmsPlugin
+api-version: '1.21.11'
+author: arhamishaq762-del
+description: Survival marketplace plots, private previews, shops, archives, bells and secure trades.
+softdepend: [Vault, Essentials]
+commands:
+  market:
+    description: Marketplace and rental commands
+    usage: /market help
+    aliases: [mr]
+  marketadmin:
+    description: Administrative marketplace and recovery tools
+    usage: /marketadmin
+    aliases: [mra]
+  trade:
+    description: Secure player-to-player trading
+    usage: /trade <player>|accept|decline|cancel
+permissions:
+  marketrealms.use: {default: true}
+  marketrealms.preview: {default: true}
+  marketrealms.rent: {default: true}
+  marketrealms.renew: {default: true}
+  marketrealms.build: {default: true}
+  marketrealms.category: {default: true}
+  marketrealms.designs: {default: true}
+  marketrealms.restore: {default: true}
+  marketrealms.bell: {default: true}
+  marketrealms.shop: {default: true}
+  marketrealms.sales: {default: true}
+  marketrealms.trade: {default: true}
+  marketrealms.admin:
+    default: op
+    children:
+      marketrealms.admin.plots: true
+      marketrealms.admin.plans: true
+      marketrealms.admin.categories: true
+      marketrealms.admin.designs: true
+      marketrealms.admin.archive: true
+      marketrealms.admin.reset: true
+      marketrealms.admin.recovery: true
+  marketrealms.admin.plots: {default: op}
+  marketrealms.admin.plans: {default: op}
+  marketrealms.admin.categories: {default: op}
+  marketrealms.admin.designs: {default: op}
+  marketrealms.admin.archive: {default: op}
+  marketrealms.admin.reset: {default: op}
+  marketrealms.admin.recovery: {default: op}

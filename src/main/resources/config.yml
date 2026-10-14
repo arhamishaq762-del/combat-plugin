@@ -1,0 +1,119 @@
+# Durations are in SECONDS. 0 disables a cooldown. Changes: /cg reload.
+# In-game editing: /cg set combat.duration-seconds 30
+# List values can be edited with comma-separated names; use [] for an empty list.
+combat:
+  enabled: true
+  duration-seconds: 30
+  # A successful PvP hit refreshes BOTH players. Includes projectiles, pets and TNT owners.
+  glow: true
+  red-nametag: true
+  # Only this player's scoreboard team color is changed; prior teams are restored.
+  disabled-worlds: []
+  tag-attacker: true
+  tag-victim: true
+  actionbar-timer: true
+  clear-on-death: true
+  # Optional combat logging punishment. Off by default.
+  kill-on-logout: false
+  # Prevent tagged players using these commands, including namespaced aliases.
+  blocked-commands: [spawn, home, homes, warp, warps, tpa, tpaccept, back]
+cooldowns:
+  # false = enforced at all times; true = only while tagged
+  only-in-combat: false
+  ender-pearl: 15
+  golden-apple: 10
+  enchanted-golden-apple: 30
+  # Display the native item cooldown overlay (also stops attempts client-side).
+  item-overlay: true
+mace:
+  enabled: true
+  # Restrict in these world names even when globally enabled.
+  disabled-worlds: []
+  # true restricts every world of this environment.
+  disabled-in-nether: false
+  disabled-in-end: false
+worlds:
+  # Block portals, commands, pearls, respawns and other entry paths.
+  nether-enabled: true
+  end-enabled: true
+  disabled-worlds: []
+  # Required safe fallback if someone logs in/respawns in a disabled world.
+  # Empty = first loaded allowed NORMAL world; spawn location is used.
+  fallback-world: ''
+safe-zones:
+  enabled: true
+  # When enabled, WorldGuard is REQUIRED; plugin fails closed if it disappears.
+  # Turn this off if you do not use WorldGuard.
+  use-pvp-deny: true
+  # Treat WorldGuard regions named below as safe, regardless of their PvP flag.
+  # '*' applies to all worlds. Region matching is case-insensitive.
+  regions:
+    '*': [spawn, safezone]
+    # world: [market, lobby]
+  prevent-entry: true
+  block-all-teleports: true
+  refund-ender-pearl: true
+  # Clear the plugin's pearl cooldown after a safe-zone refund.
+  reset-pearl-cooldown-on-refund: true
+  prevent-pvp-inside: true
+  barrier:
+    # AIR = invisible server-enforced boundary. BLOCK = player-only fake blocks.
+    mode: BLOCK
+    # Any non-air block material or Bukkit block-data string, e.g.:
+    # RED_STAINED_GLASS, BARRIER, minecraft:oak_log[axis=y]
+    block: RED_STAINED_GLASS
+    # Visual wall radius: 1..8, height above feet: 1..6.
+    radius: 4
+    height: 3
+    refresh-ticks: 10
+    # false keeps existing solid blocks visually intact.
+    replace-solid-blocks: false
+messages:
+  prefix: '&8[&cCombatGuard&8] &r'
+  # All messages support & colors. Empty text disables that channel.
+  # Per notification: chat, actionbar, title, subtitle are independently configurable.
+  notification-throttle-ms: 1500
+  title-fade-in-ticks: 5
+  title-stay-ticks: 30
+  title-fade-out-ticks: 10
+  combat-start:
+    chat: '&cYou are in combat for {seconds}s. Do not log out!'
+    actionbar: '&cCombat: {seconds}s'
+    title: ''
+    subtitle: ''
+  combat-end:
+    chat: '&aYou are no longer in combat.'
+    actionbar: '&aCombat ended'
+    title: ''
+    subtitle: ''
+  combat-timer: '&cIn combat &8| &f{seconds}s'
+  cooldown:
+    chat: '&cWait {seconds}s before using {item} again.'
+    actionbar: '&c{item} cooldown: {seconds}s'
+    title: ''
+    subtitle: ''
+  mace-blocked:
+    chat: '&cMaces are disabled in this world. No damage was dealt.'
+    actionbar: '&cThe mace will not work here!'
+    title: '&cMACE DISABLED'
+    subtitle: '&7The mace will not work in this world.'
+  world-blocked:
+    chat: '&cEntry to {world} is disabled.'
+    actionbar: '&cThis world is disabled.'
+    title: '&cWORLD DISABLED'
+    subtitle: '&7You cannot enter {world}.'
+  safezone-blocked:
+    chat: '&cYou cannot enter a safe zone while in combat.'
+    actionbar: '&cSafe zone locked &8| &f{seconds}s'
+    title: '&cIN COMBAT'
+    subtitle: '&7You cannot enter the safe zone yet.'
+  pearl-refunded:
+    chat: '&eSafe-zone teleport blocked. Your ender pearl was returned.'
+    actionbar: '&eEnder pearl returned'
+    title: ''
+    subtitle: ''
+  command-blocked:
+    chat: '&cYou cannot use that command in combat ({seconds}s remaining).'
+    actionbar: '&cCommand blocked during combat'
+    title: ''
+    subtitle: ''

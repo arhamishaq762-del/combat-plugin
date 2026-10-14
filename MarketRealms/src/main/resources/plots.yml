@@ -1,0 +1,24 @@
+# Inclusive BUILD volume; the public floor is outside the volume (y=64).
+# Newly registered plots must be empty before they can be rented.
+plots:
+  north_1:
+    enabled: true
+    name: North Street 1
+    district: north
+    categories: [ores, building, general]
+    min: [4, 65, 4]
+    max: [19, 80, 19]
+  south_1:
+    enabled: true
+    name: South Street 1
+    district: south
+    categories: [farming, equipment, magic, general]
+    min: [24, 65, 4]
+    max: [39, 80, 19]
+  north_2:
+    enabled: true
+    name: North Street 2
+    district: north
+    categories: [ores, building, general]
+    min: [4, 65, 24]
+    max: [19, 80, 39]

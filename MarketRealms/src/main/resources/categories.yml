@@ -1,0 +1,10 @@
+categories:
+  ores: {enabled: true, name: Ores and minerals, description: Mining goods, icon: DIAMOND, order: 1}
+  building: {enabled: true, name: Building blocks, description: Construction supplies, icon: BRICKS, order: 2}
+  farming: {enabled: true, name: Farming and food, description: Crops and meals, icon: WHEAT, order: 3}
+  equipment: {enabled: true, name: Weapons and armor, description: Combat equipment, icon: IRON_CHESTPLATE, order: 4}
+  magic: {enabled: true, name: Potions and enchanting, description: Magical supplies, icon: ENCHANTING_TABLE, order: 5}
+  general: {enabled: true, name: General goods, description: Everything else, icon: CHEST, order: 6}
+districts:
+  north: {name: North Street, categories: [ores, building, general]}
+  south: {name: South Street, categories: [farming, equipment, magic, general]}

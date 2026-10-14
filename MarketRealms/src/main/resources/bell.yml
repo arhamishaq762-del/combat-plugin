@@ -1,0 +1,4 @@
+enabled: true
+cooldown-seconds: 15
+offline-notifications: true
+play-sound: true

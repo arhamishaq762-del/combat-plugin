@@ -1,0 +1,8 @@
+format-version: 1
+blocks-per-tick: 256
+maximum-expanded-bytes: 33554432
+# 0 retains unused archives indefinitely. Retention never deletes an unclaimed build.
+used-archive-retention-days: 90
+keep-used-archives: true
+# Unknown block entities cause archiving to STOP WITHOUT RESETTING the plot.
+unsupported-block-entity-policy: LOCK
