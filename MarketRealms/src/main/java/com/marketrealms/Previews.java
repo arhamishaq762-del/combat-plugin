@@ -330,9 +330,13 @@ final class Previews implements Listener {
       if (teleport && player.isOnline()) {
         Location back = s.back;
         if (back == null || back.getWorld() == plugin.worlds.preview) back = plugin.worlds.exit();
-        player.teleport(back);
+        if (!player.teleport(back) || inside(player))
+          player.kickPlayer("Preview exit was blocked; reconnect to leave safely.");
       }
-    } else if (teleport && inside(player)) player.teleport(plugin.worlds.exit());
+    } else if (teleport && inside(player)) {
+      if (!player.teleport(plugin.worlds.exit()))
+        player.kickPlayer("Preview exit was blocked; ask an administrator.");
+    }
   }
 
   private void clearVisual(Player p, Session s) {

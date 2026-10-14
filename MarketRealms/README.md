@@ -203,6 +203,7 @@ Alias: `/mra`. Permission suffixes below have `marketrealms.` prepended. Full `a
 | `/marketadmin spawn market\|preview` | `admin`; stand in the relevant world |
 | `/marketadmin plot create <id> <width> <height> <depth> <district> <category,...>` | `admin.plots`; stand at minimum build corner in market |
 | `/marketadmin plot remove <id>` | `admin.plots`; only empty/unreferenced plot identities |
+| `/marketadmin shoprepair` | `admin`; repair missing display entities and remove loaded orphaned displays |
 | `/marketadmin inspect rentals\|listings` | `admin`; inspect first 100 persisted records |
 | `/marketadmin reset <plot-id> confirm` | `admin.reset`; expires occupied plot and archives BEFORE resetting |
 | `/marketadmin archive list\|info <id>` | `admin.archive`; metadata inspection (list takes no ID) |

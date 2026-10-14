@@ -349,6 +349,11 @@ final class Commands implements CommandExecutor, TabCompleter {
         plugin.reload();
         sender.sendMessage("Plot definition saved and validated");
       }
+      case "shoprepair" -> {
+        permit(sender, "admin");
+        plugin.shops.repair();
+        sender.sendMessage("Missing display entities repaired; loaded orphaned displays removed");
+      }
       case "inspect" -> {
         permit(sender, "admin");
         if (args.length != 2 || !Set.of("rentals", "listings").contains(args[1]))
