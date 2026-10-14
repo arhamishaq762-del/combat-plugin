@@ -30,6 +30,12 @@ final class Rentals {
             "Plot "
                 + id
                 + " is occupied/locked. Archive/reset explicitly before changing its definition.");
+      if (p == null && plugin.db.one("SELECT id FROM rentals WHERE plot=?", id) != null)
+        throw new IllegalArgumentException(
+            "Plot "
+                + id
+                + " has historic rental/archive references. Disable it instead of deleting its"
+                + " identity.");
       if (p == null)
         plugin.db.update(
             "DELETE FROM plots WHERE id=? AND state='AVAILABLE' AND NOT EXISTS(SELECT 1 FROM"
@@ -262,6 +268,11 @@ final class Rentals {
     long now = System.currentTimeMillis();
     for (var r : plugin.db.rows("SELECT * FROM rentals WHERE state='ACTIVE' AND expires<=?", now)) {
       String plot = text(r, "plot");
+      if (plugin.db.one(
+              "SELECT id FROM plots WHERE id=? AND state IN"
+                  + " ('RESTORING','DESIGN_REVIEW','SHOP_REVIEW')",
+              plot)
+          != null) continue;
       plugin.db.transaction(
           () -> {
             plugin.db.update(

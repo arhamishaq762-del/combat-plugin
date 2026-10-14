@@ -39,7 +39,9 @@ final class Configuration {
       try (var reader =
           new InputStreamReader(
               Objects.requireNonNull(plugin.getResource(file + ".yml")), StandardCharsets.UTF_8)) {
-        y.setDefaults(YamlConfiguration.loadConfiguration(reader));
+        var defaults = YamlConfiguration.loadConfiguration(reader);
+        if (!Set.of("rental-plans", "categories", "designs", "plots").contains(file))
+          y.setDefaults(defaults);
       }
       y.options().copyDefaults(true);
       files.put(file, y);
@@ -66,11 +68,35 @@ final class Configuration {
     range("trade", "maximum-distance", 1, 32);
     range("trade", "maximum-offer-slots", 1, 18);
     range("bell", "cooldown-seconds", 1, 3600);
-    for (var entry : files.entrySet())
+    for (var entry : files.entrySet()) {
+      for (String key : entry.getValue().getKeys(true))
+        if (key.endsWith(".enabled") && !(entry.getValue().get(key) instanceof Boolean))
+          throw new IllegalArgumentException(entry.getKey() + "." + key + " must be true/false");
+      if (entry.getValue().getDefaults() == null) continue;
       for (String key : entry.getValue().getDefaults().getKeys(true))
         if (entry.getValue().getDefaults().get(key) instanceof Boolean
             && !(entry.getValue().get(key) instanceof Boolean))
           throw new IllegalArgumentException(entry.getKey() + "." + key + " must be true/false");
+    }
+    for (String path : List.of("worlds.market-spawn", "worlds.preview-spawn")) {
+      var spawn = main.getDoubleList(path);
+      if (spawn.size() != 5 || spawn.stream().anyMatch(v -> !Double.isFinite(v)))
+        throw new IllegalArgumentException(path + " must contain five finite numbers");
+    }
+    if (main.getInt("preview.pad-spacing") < main.getInt("preview.maximum-size") + 2)
+      throw new IllegalArgumentException(
+          "Preview pads must have at least two blocks spacing between their maximum sizes");
+    for (String container : file("shops").getStringList("container-materials"))
+      if (!Set.of("CHEST", "BARREL").contains(container))
+        throw new IllegalArgumentException(
+            "Only single CHEST/BARREL stock containers are supported");
+    for (int hours : main.getIntegerList("rentals.warning-hours"))
+      if (hours <= 0 || hours > 87600)
+        throw new IllegalArgumentException("Rental warning hours must be positive and in range");
+    range("config", "preview.radius", 1, 6);
+    range("trade", "emerald-step", 1, 64);
+    if (cents(file("trade").getString("money-step")) <= 0)
+      throw new IllegalArgumentException("Trade money-step must be positive");
     section(file("rental-plans"), "plans")
         .getKeys(false)
         .forEach(
@@ -168,8 +194,6 @@ final class Configuration {
                       s.getString("roof"),
                       s.getString("window")));
             });
-    if (plans.values().stream().noneMatch(Plan::enabled))
-      throw new IllegalArgumentException("At least one rental plan must be enabled");
   }
 
   YamlConfiguration file(String name) {

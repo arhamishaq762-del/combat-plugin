@@ -42,7 +42,10 @@ final class Money {
   }
 
   boolean available() {
-    return provider != null && plugin.getServer().getPluginManager().isPluginEnabled("Vault");
+    return provider != null
+        && plugin.getServer().getPluginManager().isPluginEnabled("Vault")
+        && (!(plugin instanceof MarketRealmsPlugin market)
+            || market.config.file("config").getBoolean("economy.money-enabled"));
   }
 
   double balance(UUID owner) {

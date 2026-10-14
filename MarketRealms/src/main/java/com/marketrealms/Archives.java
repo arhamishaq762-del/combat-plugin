@@ -338,6 +338,12 @@ final class Archives implements AutoCloseable {
   }
 
   private void fail(Map<String, Object> archive, String reason) {
+    var current = plugin.db.one("SELECT destination FROM archives WHERE id=?", text(archive, "id"));
+    if (current != null && !text(current, "destination").isEmpty()) {
+      var rental =
+          plugin.db.one("SELECT plot FROM rentals WHERE id=?", text(current, "destination"));
+      if (rental != null) running.remove(text(rental, "plot"));
+    }
     running.remove(text(archive, "plot"));
     plugin.db.update("UPDATE archives SET error=? WHERE id=?", reason, text(archive, "id"));
     plugin
@@ -400,10 +406,10 @@ final class Archives implements AutoCloseable {
     if (text(a, "state").equals("RESTORING")) {
       var r = plugin.db.one("SELECT * FROM rentals WHERE id=?", text(a, "destination"));
       restoreInternal(a, r);
-    } else {
+    } else if (Set.of("CAPTURING", "RESETTING", "FAILED").contains(text(a, "state"))) {
       var r = plugin.db.one("SELECT * FROM rentals WHERE id=?", text(a, "rental"));
       expire(r);
-    }
+    } else throw new IllegalArgumentException("Only incomplete archive operations may be retried");
   }
 
   void export(String id) throws Exception {

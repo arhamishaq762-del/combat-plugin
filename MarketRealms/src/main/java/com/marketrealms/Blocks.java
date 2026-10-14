@@ -11,7 +11,13 @@ import org.bukkit.inventory.ItemStack;
 final class Blocks {
   static boolean supported(BlockState state) {
     return !(state instanceof TileState)
-        || state instanceof Container
+        || (state instanceof Chest
+            || state instanceof Barrel
+            || state instanceof ShulkerBox
+            || state instanceof Furnace
+            || state instanceof BrewingStand
+            || state instanceof Dispenser
+            || state instanceof Dropper)
         || state instanceof Sign
         || state instanceof Bell;
   }

@@ -48,8 +48,7 @@ final class Journal {
     for (var row :
         plugin.db.rows(
             "SELECT player FROM participants JOIN operations ON operation=operations.id WHERE"
-                + " state='REVIEW'"))
-      blocked.add(UUID.fromString(text(row, "player")));
+                + " state='REVIEW'")) blocked.add(UUID.fromString(text(row, "player")));
   }
 
   boolean locked(UUID player) {
