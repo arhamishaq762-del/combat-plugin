@@ -106,4 +106,113 @@ class JournalTest {
         () -> j.resolve("id", "retry-charge", mock(org.bukkit.command.CommandSender.class)));
     assertEquals("REVIEW", Store.text(db.one("SELECT * FROM operations WHERE id='id'"), "state"));
   }
+
+  private Player actor(UUID owner) {
+    Player p = mock(Player.class);
+    PlayerInventory inv = mock(PlayerInventory.class);
+    when(p.getUniqueId()).thenReturn(owner);
+    when(p.getInventory()).thenReturn(inv);
+    when(inv.getStorageContents()).thenReturn(new ItemStack[36]);
+    when(p.getPersistentDataContainer()).thenReturn(mock(PersistentDataContainer.class));
+    when(plugin.getName()).thenReturn("MarketRealms");
+    return p;
+  }
+
+  @Test
+  void rejectedSqlWorkCompensatesKnownVaultWithdrawal() {
+    UUID owner = UUID.randomUUID();
+    Player p = actor(owner);
+    Journal journal = new Journal(plugin);
+    when(plugin.money.balance(owner)).thenReturn(10.0);
+    when(plugin.money.transfer(owner, 100)).thenReturn(true);
+    when(plugin.money.transfer(owner, -100)).thenReturn(true);
+    try (var bukkit = mockStatic(Bukkit.class)) {
+      bukkit.when(() -> Bukkit.getPlayer(owner)).thenReturn(p);
+      assertThrows(
+          IllegalArgumentException.class,
+          () ->
+              journal.execute(
+                  "RENT",
+                  List.of(new Journal.Change(p, new ItemStack[36], new ItemStack[36])),
+                  List.of(new Journal.Charge(owner, 100)),
+                  Map.of(),
+                  id -> {
+                    throw new IllegalArgumentException("Assignment rejected");
+                  }));
+    }
+    verify(plugin.money).transfer(owner, -100);
+    assertEquals("ROLLED_BACK", Store.text(db.one("SELECT * FROM operations"), "state"));
+    assertFalse(journal.locked(owner));
+  }
+
+  @Test
+  void uncertainProviderFailureIsNeverBlindlyRetried() {
+    UUID owner = UUID.randomUUID();
+    Player p = actor(owner);
+    Journal journal = new Journal(plugin);
+    when(plugin.money.balance(owner)).thenReturn(10.0);
+    when(plugin.money.transfer(owner, 100))
+        .thenThrow(new IllegalStateException("Provider stopped after external effect"));
+    try (var bukkit = mockStatic(Bukkit.class)) {
+      bukkit.when(() -> Bukkit.getPlayer(owner)).thenReturn(p);
+      assertThrows(
+          IllegalArgumentException.class,
+          () ->
+              journal.execute(
+                  "PURCHASE",
+                  List.of(new Journal.Change(p, new ItemStack[36], new ItemStack[36])),
+                  List.of(new Journal.Charge(owner, 100)),
+                  Map.of(),
+                  id -> null));
+    }
+    verify(plugin.money, never()).transfer(owner, -100);
+    assertEquals("REVIEW", Store.text(db.one("SELECT * FROM operations"), "state"));
+    assertTrue(journal.locked(owner));
+  }
+
+  @Test
+  void insufficientMoneyCreatesNoOperationAndChargesNothing() {
+    UUID owner = UUID.randomUUID();
+    Player p = actor(owner);
+    Journal journal = new Journal(plugin);
+    when(plugin.money.balance(owner)).thenReturn(0.25);
+    try (var bukkit = mockStatic(Bukkit.class)) {
+      bukkit.when(() -> Bukkit.getPlayer(owner)).thenReturn(p);
+      assertThrows(
+          IllegalArgumentException.class,
+          () ->
+              journal.execute(
+                  "RENT",
+                  List.of(new Journal.Change(p, new ItemStack[36], new ItemStack[36])),
+                  List.of(new Journal.Charge(owner, 100)),
+                  Map.of(),
+                  id -> null));
+    }
+    verify(plugin.money, never()).transfer(any(), anyLong());
+    assertTrue(db.rows("SELECT * FROM operations").isEmpty());
+  }
+
+  @Test
+  void successfulVaultOperationCommitsOnlyOnce() {
+    UUID owner = UUID.randomUUID();
+    Player p = actor(owner);
+    Journal journal = new Journal(plugin);
+    when(plugin.money.balance(owner)).thenReturn(10.0);
+    when(plugin.money.transfer(owner, 100)).thenReturn(true);
+    try (var bukkit = mockStatic(Bukkit.class)) {
+      bukkit.when(() -> Bukkit.getPlayer(owner)).thenReturn(p);
+      journal.execute(
+          "PURCHASE",
+          List.of(new Journal.Change(p, new ItemStack[36], new ItemStack[36])),
+          List.of(new Journal.Charge(owner, 100)),
+          Map.of(),
+          id -> {
+            journal.credit(owner, Domain.Currency.MONEY, 100);
+            return null;
+          });
+    }
+    assertEquals("COMMITTED", Store.text(db.one("SELECT * FROM operations"), "state"));
+    verify(plugin.money, times(1)).transfer(owner, 100);
+    assertEquals(100, Store.number(db.one("SELECT * FROM wallets"), "money"));
+  }
 }
