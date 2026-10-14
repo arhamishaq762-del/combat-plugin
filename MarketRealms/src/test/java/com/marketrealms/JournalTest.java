@@ -120,6 +120,7 @@ class JournalTest {
     when(inv.getStorageContents()).thenReturn(new ItemStack[36]);
     when(p.getPersistentDataContainer()).thenReturn(mock(PersistentDataContainer.class));
     when(plugin.getName()).thenReturn("MarketRealms");
+    when(plugin.namespace()).thenReturn("marketrealms");
     return p;
   }
 
