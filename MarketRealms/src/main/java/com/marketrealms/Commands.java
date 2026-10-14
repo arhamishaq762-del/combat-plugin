@@ -439,8 +439,9 @@ final class Commands implements CommandExecutor, TabCompleter {
           if (args.length != 4 || !args[3].equals("confirm-reconciled"))
             throw new IllegalArgumentException("recovery unlockplot <plot> confirm-reconciled");
           if (plugin.db.update(
-                  "UPDATE plots SET state='RENTED' WHERE id=? AND state IN"
-                      + " ('SHOP_REVIEW','DESIGN_REVIEW')",
+                  "UPDATE plots SET state=CASE WHEN EXISTS(SELECT 1 FROM rentals WHERE plot=plots.id"
+                      + " AND state='ACTIVE') THEN 'RENTED' ELSE 'AVAILABLE' END WHERE id=? AND state IN"
+                      + " ('SHOP_REVIEW','DESIGN_REVIEW','OPERATION_REVIEW')",
                   args[2])
               != 1) throw new IllegalArgumentException("Plot is not an operation-review lock");
           sender.sendMessage("Plot unlocked after manual reconciliation");
