@@ -7,6 +7,11 @@ import static org.mockito.Mockito.*;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.logging.Logger;
+import org.bukkit.Bukkit;
+import org.bukkit.entity.Player;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.PlayerInventory;
+import org.bukkit.persistence.PersistentDataContainer;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
 
