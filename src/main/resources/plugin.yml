@@ -1,0 +1,31 @@
+name: CombatGuard
+version: 1.0.0
+main: dev.combatguard.CombatGuardPlugin
+api-version: '1.21.11'
+author: arhamishaq762-del
+description: Configurable combat protection and WorldGuard safe-zone barriers.
+softdepend: [WorldGuard]
+commands:
+  combatguard:
+    description: Inspect and configure CombatGuard
+    aliases: [cg, combat]
+    usage: /combatguard [status|reload|set|tag|untag]
+permissions:
+  combatguard.admin:
+    description: Configure the plugin and manage combat tags
+    default: op
+  combatguard.bypass.combat:
+    description: Do not receive combat tags
+    default: false
+  combatguard.bypass.cooldown:
+    description: Ignore plugin item cooldowns
+    default: false
+  combatguard.bypass.world:
+    description: Enter disabled worlds
+    default: false
+  combatguard.bypass.mace:
+    description: Use maces in restricted worlds
+    default: false
+  combatguard.bypass.safezone:
+    description: Enter safe zones while tagged
+    default: false
