@@ -1,0 +1,9 @@
+enabled: true
+request-timeout-seconds: 30
+request-cooldown-seconds: 10
+maximum-distance: 10.0
+maximum-offer-slots: 18
+emerald-step: 1
+money-step: '1.00'
+# Vault transfers credit the recipient's persistent claimable money balance.
+allow-money: true

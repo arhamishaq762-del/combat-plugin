@@ -1,0 +1,4 @@
+container-materials: [CHEST, BARREL]
+display-scale: 0.65
+# Customer inventory delivery is atomic at runtime; ambiguous crashes lock participants.
+confirmation-required: true

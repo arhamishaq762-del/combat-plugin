@@ -1,0 +1,20 @@
+plans:
+  weekly:
+    enabled: true
+    name: Weekly
+    duration-days: 7
+    emeralds: 32
+    money: '500.00'
+  monthly:
+    enabled: true
+    name: Monthly
+    duration-days: 30
+    emeralds: 96
+    money: '1500.00'
+  quarterly:
+    enabled: true
+    name: Quarterly
+    duration-days: 90
+    emeralds: 256
+    money: '4000.00'
+# Set emeralds or money to '-' to disable that method independently.
