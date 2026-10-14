@@ -50,7 +50,9 @@ final class Previews implements Listener {
     if (!plugin.config.file("config").getBoolean("preview.enabled"))
       throw new IllegalArgumentException("Preview is disabled");
     if (plugin.trades != null) plugin.trades.cancel(player, "Entered preview");
-    plugin.journal.require(player);
+    if (plugin.journal.locked(player.getUniqueId()))
+      throw new IllegalArgumentException("Your account is locked for recovery");
+    if (!inside(player)) plugin.journal.require(player);
     Session session =
         sessions.computeIfAbsent(
             player.getUniqueId(),
@@ -59,7 +61,11 @@ final class Previews implements Listener {
               s.back = player.getLocation().clone();
               return s;
             });
+    clearVisual(player, session);
+    session.design = "";
     session.category = category == null ? "" : category;
+    if (!session.category.isEmpty() && !plugin.config.categories.containsKey(session.category))
+      throw new IllegalArgumentException("Unknown category");
     if (!player.teleport(plugin.worlds.previewSpawn())) {
       sessions.remove(player.getUniqueId());
       throw new IllegalArgumentException("Preview teleport was blocked by another plugin");
@@ -69,8 +75,10 @@ final class Previews implements Listener {
         .runTaskLater(
             plugin,
             () -> {
-              if (inside(player) && sessions.containsKey(player.getUniqueId()))
+              if (inside(player) && sessions.get(player.getUniqueId()) == session) {
+                clearVisual(player, session);
                 show(player, session);
+              }
             },
             10);
     plugin.message(player, "preview", Map.of());
@@ -94,7 +102,10 @@ final class Previews implements Listener {
         .runTaskLater(
             plugin,
             () -> {
-              if (inside(p)) show(p, s);
+              if (inside(p) && sessions.get(p.getUniqueId()) == s) {
+                clearVisual(p, s);
+                show(p, s);
+              }
             },
             10);
   }
@@ -215,7 +226,7 @@ final class Previews implements Listener {
                 text));
       }
     } catch (RuntimeException e) {
-      cleanup(player, false);
+      cleanup(player, true);
       plugin.error(player, "Preview failed safely: " + e.getMessage());
     }
   }
@@ -294,6 +305,12 @@ final class Previews implements Listener {
     if (s.selected == null) return;
     Pad pad = s.selected;
     Player p = e.getPlayer();
+    if (pad.box()
+            .rayTrace(
+                p.getEyeLocation().toVector(),
+                p.getEyeLocation().getDirection(),
+                plugin.config.file("config").getDouble("preview.radius"))
+        == null) return;
     if (pad.design().isEmpty()) plugin.menus.plot(p, pad.plot());
     else plugin.menus.design(p, pad.design());
   }

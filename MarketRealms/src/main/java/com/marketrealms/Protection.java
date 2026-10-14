@@ -228,7 +228,8 @@ final class Protection implements Listener {
 
   @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
   public void piston(BlockPistonExtendEvent e) {
-    if (protectedAt(e.getBlock().getLocation())) e.setCancelled(true);
+    if (protectedAt(e.getBlock().getLocation())
+        || e.getBlocks().stream().anyMatch(b -> protectedAt(b.getLocation()))) e.setCancelled(true);
   }
 
   @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
